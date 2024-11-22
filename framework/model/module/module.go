@@ -227,6 +227,12 @@ func Main(bundle string, modules []Module) {
 		return m
 	}
 	// get main module config
+	// LoadModule:
+	//   从配置中获取模块名称和类型
+	//   调用LoadModuleFromConfig完成模块实例化
+	// LoadModuleFromConfig:
+	//   调用模块的Clone()方法生成一个独立实例
+	//   加载模块的配置文件并解析
 	mainMod, mainModParsedCfg, err := LoadModule("", modGetter, nil)
 	if err != nil {
 		panic(err)
@@ -242,6 +248,8 @@ func Main(bundle string, modules []Module) {
 	}
 
 	log.Infof("load module config of %s: %s, generalCfg: %s", bundle, string(mainModRawJson), string(mainModGeneralJson))
+
+	log.Infof("this is a test line in main by tantao")
 
 	// check if main module is bundle or not
 	isBundle := mainModConfig.Bundle != nil
@@ -292,6 +300,7 @@ func Main(bundle string, modules []Module) {
 	)
 	for _, mc := range mcs {
 		modKinds = append(modKinds, mc.module.Kind())
+		// 注册自定义资源到k8s的runtime.Scheme中
 		if err := mc.module.InitScheme(scheme); err != nil {
 			log.Errorf("mod %s InitScheme met err %v", mc.module.Kind(), err)
 			fatal()
@@ -336,6 +345,7 @@ func Main(bundle string, modules []Module) {
 	mgrOpts.Scheme = scheme
 	mgrOpts.MetricsBindAddress = mainModConfig.Global.Misc["metrics-addr"]
 	mgrOpts.Port = 9443
+	// 控制器的生命周期由框架管理器（Manager）控制
 	mgr, err := ctrl.NewManager(conf, mgrOpts)
 	if err != nil {
 		log.Errorf("unable to create manager %s, %+v", bundle, err)
@@ -440,6 +450,11 @@ func Main(bundle string, modules []Module) {
 				fatal()
 			}
 		} else {
+			// Setup是模块中定义的核心逻辑
+			// 模块的Setup主要完成以下任务：
+			//   注册控制器
+			//   配置Leader Election会调
+			//   设置指标采集逻辑
 			if err := mc.module.Setup(ModuleOptions{
 				Env:               moduleEnv,
 				InitCbs:           cbs,
@@ -502,6 +517,9 @@ func Main(bundle string, modules []Module) {
 		defer wg.Done()
 		defer once.Do(cancel)
 		log.Infof("starting manager with modules %v", modKinds)
+		// 框架启动控制器和模块逻辑
+		// 控制器管理器（Manager）会根据注册的控制器监听Kubernetes的资源变化
+		// 在资源变化时，调用模块的逻辑进行处理
 		if err := mgr.Start(ctx); err != nil {
 			log.Errorf("problem running, %+v", err)
 		}

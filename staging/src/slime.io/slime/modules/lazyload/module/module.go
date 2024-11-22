@@ -42,9 +42,9 @@ func (m *Module) Config() proto.Message {
 
 func (m *Module) InitScheme(scheme *runtime.Scheme) error {
 	for _, f := range []func(*runtime.Scheme) error{
-		clientgoscheme.AddToScheme,
-		lazyloadapiv1alpha1.AddToScheme,
-		istionetworkingv1alpha3.AddToScheme,
+		clientgoscheme.AddToScheme,          // 注册 Kubernetes 内置资源，如 Pod、Service 等
+		lazyloadapiv1alpha1.AddToScheme,     // 注册 Lazyload 的自定义资源 ServiceFence
+		istionetworkingv1alpha3.AddToScheme, // 注册 Istio 的资源，如 VirtualService
 	} {
 		if err := f(scheme); err != nil {
 			return err
@@ -66,13 +66,17 @@ func (m *Module) Setup(opts module.ModuleOptions) error {
 	if err != nil {
 		return fmt.Errorf("unable to create ProducerConfig, %+v", err)
 	}
+
+	// 通过sfReconciler注册与ServiceFence资源相关的控制器
+	// 设置nsSvcCache等一系列结构题
+	// 创建一个 sfReconciler 实例，用于调谐 ServiceFence 资源。
 	sfReconciler := controllers.NewReconciler(
 		controllers.ReconcilerWithCfg(&m.config),
 		controllers.ReconcilerWithEnv(env),
 		controllers.ReconcilerWithProducerConfig(pc),
 	)
-	sfReconciler.Client = mgr.GetClient()
-	sfReconciler.Scheme = mgr.GetScheme()
+	sfReconciler.Client = mgr.GetClient() // 获取 Kubernetes 的客户端，用于与 API Server 通信。
+	sfReconciler.Scheme = mgr.GetScheme() // 获取当前控制器的资源类型注册表（runtime.Scheme）
 
 	if env.ConfigController != nil {
 		sfReconciler.RegisterSeHandler()
@@ -90,8 +94,10 @@ func (m *Module) Setup(opts module.ModuleOptions) error {
 	})
 
 	// build metric source
+	// 通过 metric.NewSource 构建指标源。
 	source := metric.NewSource(pc)
 
+	// 从 ServiceFence 中加载流量信息到缓存，供动态流量控制使用。
 	cache, err := controllers.NewCache(env)
 	if err != nil {
 		return fmt.Errorf("GetCacheFromServicefence occured err: %s", err)
@@ -109,6 +115,7 @@ func (m *Module) Setup(opts module.ModuleOptions) error {
 	var builder basecontroller.ObjectReconcilerBuilder
 
 	// auto generate ServiceFence or not
+	// 注册控制器逻辑，将 Reconcile 函数绑定到具体的资源。
 	if m.config.AutoFence {
 		builder = builder.Add(basecontroller.ObjectReconcileItem{
 			Name:    "Namespace",
@@ -122,6 +129,7 @@ func (m *Module) Setup(opts module.ModuleOptions) error {
 		// use FenceLabelKeyAlias ad switch to turn on/off workload fence
 		if m.config.FenceLabelKeyAlias != "" {
 			podController := sfReconciler.NewPodController(env.K8SClient, m.config.FenceLabelKeyAlias)
+			// 为模块设置leader Election机制，选举成功后，调用模块的回调逻辑
 			le.AddOnStartedLeading(func(ctx context.Context) {
 				go podController.Run(ctx.Done())
 			})
@@ -161,6 +169,7 @@ func (m *Module) Setup(opts module.ModuleOptions) error {
 	})
 
 	if m.config.AutoPort {
+		// 启用自动端口监控
 		le.AddOnStartedLeading(func(ctx context.Context) {
 			sfReconciler.StartAutoPort(ctx)
 		})
@@ -168,6 +177,8 @@ func (m *Module) Setup(opts module.ModuleOptions) error {
 
 	if env.Config.Metric != nil ||
 		m.config.MetricSourceType == controllers.MetricSourceTypeAccesslog {
+		// 启动指标采集
+		// 使用 sfReconciler.WatchMetric 动态监听访问流量
 		le.AddOnStartedLeading(func(ctx context.Context) {
 			go sfReconciler.WatchMetric(ctx)
 		})
@@ -175,6 +186,7 @@ func (m *Module) Setup(opts module.ModuleOptions) error {
 		log.Warningf("watching metric is not running")
 	}
 
+	// 在 Leader Election 场景下，动态管理 Leader Pod 的标签。
 	if env.Config.Global != nil && env.Config.Global.Misc["enableLeaderElection"] == "on" {
 		log.Infof("add/delete leader label in StartedLeading/stoppedLeading")
 		le.AddOnStartedLeading(func(ctx context.Context) {
@@ -269,6 +281,7 @@ func deletePodLabel(ctx context.Context, client *kubernetes.Clientset, podNs, po
 	return nil
 }
 
+// 通过 Kubernetes API 获取 Pod 的信息。
 func getPod(ctx context.Context, client *kubernetes.Clientset, podNs, podName string) (*corev1.Pod, error) {
 	pod, err := client.CoreV1().Pods(podNs).Get(ctx, podName, metav1.GetOptions{})
 	if err != nil {

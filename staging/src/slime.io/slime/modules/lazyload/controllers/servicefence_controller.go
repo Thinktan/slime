@@ -18,7 +18,9 @@ package controllers
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"net/http"
 	"reflect"
 	"sort"
 	"strings"
@@ -48,18 +50,138 @@ import (
 	modmodel "slime.io/slime/modules/lazyload/model"
 )
 
+type DebugInfo struct {
+	NsSvcCache        map[string]map[string]struct{}
+	LabelSvcCache     map[LabelItem]map[string]struct{}
+	PortProtocolCache map[int32]map[Protocol]int32
+}
+
+func (cache *NsSvcCache) ConvertToSerializable() map[string][]string {
+	cache.RLock()
+	defer cache.RUnlock()
+
+	converted := make(map[string][]string)
+	for ns, svcMap := range cache.Data {
+		var svcs []string
+		for svc := range svcMap {
+			svcs = append(svcs, svc)
+		}
+		converted[ns] = svcs
+	}
+	return converted
+}
+
+func (cache *LabelSvcCache) ConvertToSerializable() map[string][]string {
+	cache.RLock()
+	defer cache.RUnlock()
+
+	converted := make(map[string][]string)
+	for label, svcMap := range cache.Data {
+		labelKey := fmt.Sprintf("%s=%s", label.Name, label.Value)
+		var svcs []string
+		for svc := range svcMap {
+			svcs = append(svcs, svc)
+		}
+		converted[labelKey] = svcs
+	}
+	return converted
+}
+
+// GetDebugInfo 返回缓存的调试信息
+func (r *ServicefenceReconciler) GetDebugInfo() DebugInfo {
+	r.nsSvcCache.RLock()
+	defer r.nsSvcCache.RUnlock()
+
+	r.labelSvcCache.RLock()
+	defer r.labelSvcCache.RUnlock()
+
+	return DebugInfo{
+		NsSvcCache:        r.nsSvcCache.Data,
+		LabelSvcCache:     r.labelSvcCache.Data,
+		PortProtocolCache: r.portProtocolCache.Data,
+	}
+}
+
+// 转换函数
+func ConvertDebugInfo(debugInfo DebugInfo) map[string]interface{} {
+	// 转换 NsSvcCache
+	convertedNsSvcCache := make(map[string][]string)
+	for ns, svcMap := range debugInfo.NsSvcCache {
+		var svcs []string
+		for svc := range svcMap {
+			svcs = append(svcs, svc)
+		}
+		convertedNsSvcCache[ns] = svcs
+	}
+
+	// 转换 LabelSvcCache
+	convertedLabelSvcCache := make(map[string][]string)
+	for label, svcMap := range debugInfo.LabelSvcCache {
+		labelKey := fmt.Sprintf("%s=%s", label.Name, label.Value)
+		var svcs []string
+		for svc := range svcMap {
+			svcs = append(svcs, svc)
+		}
+		convertedLabelSvcCache[labelKey] = svcs
+	}
+
+	// 转换 PortProtocolCache
+	convertedPortProtocolCache := make(map[int32]map[string]int32)
+	for port, protocolMap := range debugInfo.PortProtocolCache {
+		convertedProtocolMap := make(map[string]int32)
+		for protocol, count := range protocolMap {
+			convertedProtocolMap[string(protocol)] = count
+		}
+		convertedPortProtocolCache[port] = convertedProtocolMap
+	}
+
+	// 返回综合结果
+	return map[string]interface{}{
+		"Namespace to Services": convertedNsSvcCache,
+		"Label to Services":     convertedLabelSvcCache,
+		"Port to Protocols":     convertedPortProtocolCache,
+	}
+}
+
+func (r *ServicefenceReconciler) StartDebugServer() {
+	http.HandleFunc("/debug/cache", func(w http.ResponseWriter, req *http.Request) {
+		debugInfo := r.GetDebugInfo()
+
+		// 调用转换函数
+		converted := ConvertDebugInfo(debugInfo)
+
+		// 将调试信息转为 JSON 格式
+		data, err := json.MarshalIndent(converted, "", "  ")
+		if err != nil {
+			http.Error(w, fmt.Sprintf("failed to marshal debug info: %v", err), http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(data)
+	})
+
+	go func() {
+		addr := ":8089" // 默认调试端口
+		fmt.Printf("Starting debug server at %s\n", addr)
+		if err := http.ListenAndServe(addr, nil); err != nil {
+			fmt.Printf("Failed to start debug server: %v\n", err)
+		}
+	}()
+}
+
 // ServicefenceReconciler reconciles a Servicefence object
 type ServicefenceReconciler struct {
-	client.Client
+	client.Client // 和K8S API交互，管理和查询资源
 
 	Scheme            *runtime.Scheme
 	cfg               *config.Fence
 	env               bootstrap.Environment
 	interestMeta      map[string]bool
-	interestMetaCopy  map[string]bool // for outside read
-	watcherMetricChan <-chan metric.Metric
+	interestMetaCopy  map[string]bool      // for outside read
+	watcherMetricChan <-chan metric.Metric // 用于接受不了指标数据，动态调整sidecar
 	tickerMetricChan  <-chan metric.Metric
-	reconcileLock     sync.RWMutex
+	reconcileLock     sync.RWMutex // 确保并发修改资源的安全
 	// mapping of the namespace to the namespaced name of all the service reside in it
 	nsSvcCache *NsSvcCache
 	// mapping of the label kv pair to the namespaced name of all the service matching it
@@ -130,9 +252,14 @@ func NewReconciler(opts ...ReconcilerOpts) *ServicefenceReconciler {
 		ipToSvcCache:      &IpToSvcCache{Data: map[string]map[string]struct{}{}},
 		svcToIpsCache:     &SvcToIpsCache{Data: map[string][]string{}},
 	}
+
+	// 支持自定义配置
 	for _, opt := range opts {
 		opt(r)
 	}
+
+	// 启动 HTTP 调试服务器
+	r.StartDebugServer()
 	return r
 }
 
@@ -155,8 +282,36 @@ func (r *ServicefenceReconciler) Clear() {
 func (r *ServicefenceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := modmodel.ModuleLog.WithField(model.LogFieldKeyResource, req.NamespacedName)
 
-	log.Debugf("reconcile svf %s", req)
+	log.Infof("reconcile svf %s", req)
+
+	// --------------------------------------
+	// 打印 nsSvcCache
+	log.Infof("nsSvcCache Data:")
+	for ns, services := range r.nsSvcCache.Data {
+		log.Infof("Namespace: %s, Services: %v\n", ns, services)
+	}
+
+	// 打印 labelSvcCache
+	log.Infof("labelSvcCache Data:")
+	for label, services := range r.labelSvcCache.Data {
+		log.Infof("Label: %v, Services: %v\n", label, services)
+	}
+
+	// 打印 ipToSvcCache
+	log.Infof("ipToSvcCache Data:")
+	for ip, services := range r.ipToSvcCache.Data {
+		log.Infof("IP: %s, Services: %v\n", ip, services)
+	}
+
+	// 打印其他缓存
+	log.Infof("fenceToIp Data:")
+	for fence, ips := range r.fenceToIp.Data {
+		log.Infof("ServiceFence: %v, IPs: %v\n", fence, ips)
+	}
+	// --------------------------------------
+
 	// Fetch the ServiceFence instance
+	// 获取资源实例
 	instance := &lazyloadv1alpha1.ServiceFence{}
 	err := r.Client.Get(ctx, req.NamespacedName, instance)
 
@@ -166,6 +321,7 @@ func (r *ServicefenceReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	if err != nil {
 		if errors.IsNotFound(err) {
 			// we should delete info in interestMeta if svf is deleted
+			// 如果资源被删除，更新缓存并移除相关配置
 			log.Infof("serviceFence %+v is deleted", req.NamespacedName)
 			delete(r.interestMeta, req.NamespacedName.String())
 			r.updateInterestMetaCopy()
@@ -175,6 +331,7 @@ func (r *ServicefenceReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		return reconcile.Result{}, err
 	}
 
+	// 校验istio续订版本是否匹配
 	if rev := model.IstioRevFromLabel(instance.Labels); !r.env.RevInScope(rev) { // remove watch ?
 		log.Infof("exsiting sf %v istioRev %s but our %s, skip...",
 			req.NamespacedName, rev, r.env.IstioRev())
@@ -182,7 +339,7 @@ func (r *ServicefenceReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	}
 	log.Infof("serviceFence %+v is added or update", req.NamespacedName)
 
-	// 资源更新
+	// 更新资源状态
 	r.updateServicefenceDomain(instance)
 
 	if instance.Spec.Enable {

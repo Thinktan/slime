@@ -1,0 +1,367 @@
+---
+# Source: slimeboot/templates/deployment.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: lazyload
+  namespace: mesh-operator
+  labels:
+    app: lazyload
+---
+# Source: slimeboot/templates/modules/lazyload/global-sidecar/templates/cluster-global-sidecar.yaml
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: global-sidecar
+  namespace: mesh-operator
+  labels:
+    account: global-sidecar
+---
+# Source: slimeboot/templates/deployment.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: lazyload
+  namespace: mesh-operator
+data:
+  cfg: |
+    {"enable":true,"general":{"autoFence":true,"autoPort":true,"defaultFence":true,"globalSidecarMode":"cluster","metricSourceType":"accesslog","wormholePort":["9080"]},"global":{"log":{"logLevel":"info"},"slimeNamespace":"mesh-operator"},"kind":"lazyload","name":"lazyload"}
+---
+# Source: slimeboot/templates/modules/lazyload/global-sidecar/templates/cluster-global-sidecar.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: lazyload-accesslog-source
+  namespace: mesh-operator
+data:
+  custom_bootstrap.json: |
+    {
+      "static_resources": {
+        "clusters": [{
+          "name": "lazyload-accesslog-source",
+          "type": "STRICT_DNS",
+          "connect_timeout": "5s",
+          "http2_protocol_options": {},
+          "dns_lookup_family": "V4_ONLY",
+          "load_assignment": {
+            "cluster_name": "lazyload-accesslog-source",
+            "endpoints": [{
+              "lb_endpoints": [{
+                "endpoint": {
+                  "address": {
+                    "socket_address": {
+                      "address": "lazyload.mesh-operator",
+                      "port_value": 8082
+                    }
+                  }
+                }
+              }]
+            }]
+          },
+          "respect_dns_ttl": true
+        }]
+      }
+    }
+---
+# Source: slimeboot/templates/modules/lazyload/global-sidecar/templates/cluster-global-sidecar.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: global-sidecar
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - services
+  verbs:
+  - get
+  - list
+  - watch
+---
+# Source: slimeboot/templates/deployment.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: lazyload
+subjects:
+  - kind: ServiceAccount
+    name: lazyload
+    namespace: mesh-operator
+roleRef:
+  kind: ClusterRole
+  name: slime
+  apiGroup: rbac.authorization.k8s.io
+---
+# Source: slimeboot/templates/modules/lazyload/global-sidecar/templates/cluster-global-sidecar.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: global-sidecar
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: global-sidecar
+subjects:
+- kind: ServiceAccount
+  name: global-sidecar
+  namespace: mesh-operator
+---
+# Source: slimeboot/templates/modules/lazyload/global-sidecar/templates/cluster-global-sidecar.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: global-sidecar
+  namespace: mesh-operator
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - configmaps
+    verbs:
+      - get
+      - list
+      - watch
+---
+# Source: slimeboot/templates/modules/lazyload/global-sidecar/templates/cluster-global-sidecar.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: global-sidecar
+  namespace: mesh-operator
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: global-sidecar
+subjects:
+  - kind: ServiceAccount
+    name: global-sidecar
+    namespace: mesh-operator
+---
+# Source: slimeboot/templates/deployment.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: lazyload
+  namespace: mesh-operator
+  labels:
+    app: lazyload
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: http
+      protocol: TCP
+      name: http
+    - port: 8081
+      targetPort: aux-port
+      protocol: TCP
+      name: aux-port
+    - port: 8082
+      targetPort: log-source-port
+      protocol: TCP
+      name: log-source-port
+    - port: 16010
+      targetPort: 16010
+      protocol: TCP
+      name: mcp-over-xds
+  selector:
+    app: lazyload
+---
+# Source: slimeboot/templates/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: lazyload
+  namespace: mesh-operator
+  labels:
+    app: lazyload
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: lazyload
+  template:
+    metadata:
+      labels:
+        app: lazyload
+    spec:
+      serviceAccountName: lazyload
+      securityContext:
+        {}
+      containers:
+        - name: slime
+          securityContext:
+            {}
+          image: "docker.io/slimeio/slime-lazyload:v0.9.0"
+          command:
+            - /manager
+          args:
+            null
+          imagePullPolicy: Always
+          env:
+            - name: WATCH_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: OPERATOR_NAME
+              value: "slime"
+            - name: GODEBUG
+              value: gctrace=1
+          ports:
+            - name: http
+              containerPort: 80
+              protocol: TCP
+            - name: aux-port
+              containerPort: 8081
+              protocol: TCP
+            - name: log-source-port
+              containerPort: 8082
+              protocol: TCP
+            - name: mcp-over-xds
+              containerPort: 16010
+              protocol: TCP
+          resources:
+            limits:
+              cpu: 600m
+              memory: 600Mi
+            requests:
+              cpu: 300m
+              memory: 300Mi
+          readinessProbe:
+            httpGet:
+              path: "/modules/readyz"
+              port: aux-port
+            initialDelaySeconds: 3
+            periodSeconds: 5
+            failureThreshold: 1
+          livenessProbe:
+            httpGet:
+              path: "/modules/livez"
+              port: aux-port
+            initialDelaySeconds: 3
+            periodSeconds: 5
+            failureThreshold: 2
+          volumeMounts:
+            - mountPath: /etc/slime/config
+              name: config-volume
+      volumes:
+        - configMap:
+            defaultMode: 420
+            name: lazyload
+          name: config-volume
+---
+# Source: slimeboot/templates/modules/lazyload/global-sidecar/templates/cluster-global-sidecar.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: global-sidecar
+  namespace: mesh-operator
+  labels:
+    app: global-sidecar
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: global-sidecar
+  template:
+    metadata:
+      annotations:
+        proxy.istio.io/config: |
+          proxyMetadata:
+            ISTIO_META_SLIME_APP:
+              LAZYLOAD_GLOBAL_SIDECAR
+        sidecar.istio.io/bootstrapOverride: "lazyload-accesslog-source"
+      labels:
+        app: global-sidecar
+        sidecar.istio.io/inject: "true"
+    spec:
+      serviceAccountName: global-sidecar
+      containers:
+        - name: global-sidecar
+          env:
+            - name: CLEAN_UP_WORMHOLE_PORT
+              value: "false"
+            - name: PROBE_PORT
+              value: "20000"
+            - name: LOG_LEVEL
+              value: info
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+          image: "docker.io/slimeio/slime-global-sidecar:v0.9.0"
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 9080
+              protocol: TCP
+            - containerPort: 80
+              protocol: TCP
+          livenessProbe:
+            failureThreshold: 3
+            httpGet:
+              path: /healthz/live
+              port: 20000
+              scheme: HTTP
+            initialDelaySeconds: 600
+            periodSeconds: 30
+            successThreshold: 1
+            timeoutSeconds: 15
+          readinessProbe:
+            failureThreshold: 30
+            httpGet:
+              path: /healthz/ready
+              port: 20000
+              scheme: HTTP
+            initialDelaySeconds: 1
+            periodSeconds: 2
+            successThreshold: 1
+            timeoutSeconds: 1
+          resources:
+            limits:
+              cpu: 400m
+              memory: 400Mi
+            requests:
+              cpu: 200m
+              memory: 200Mi
+          securityContext:
+            privileged: true
+---
+# Source: slimeboot/templates/modules/lazyload/global-sidecar/templates/cluster-global-sidecar.yaml
+apiVersion: networking.istio.io/v1alpha3
+kind: EnvoyFilter
+metadata:
+  name: global-sidecar-accesslog
+  namespace: mesh-operator
+spec:
+  workloadSelector:
+    labels:
+      app: global-sidecar
+  configPatches:
+    - applyTo: NETWORK_FILTER
+      match:
+        #context: GATEWAY
+        listener:
+          filterChain:
+            filter:
+              name: "envoy.filters.network.http_connection_manager"
+      patch:
+        operation: MERGE
+        value:
+          typed_config:
+            "@type": "type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager"
+            access_log:
+              - name: envoy.access_loggers.http_grpc
+                typed_config:
+                  "@type": type.googleapis.com/envoy.extensions.access_loggers.grpc.v3.HttpGrpcAccessLogConfig
+                  common_config:
+                    log_name: http_envoy_accesslog
+                    transport_api_version: "V3"
+                    grpc_service:
+                      envoy_grpc:
+                        cluster_name: lazyload-accesslog-source
+
