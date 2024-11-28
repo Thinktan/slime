@@ -18,7 +18,7 @@ import (
 
 // PathHandler for module using
 type PathHandler struct {
-	mux     *http.ServeMux
+	mux     *http.ServeMux // 管理路由
 	mapping map[string]http.Handler
 	// realPath -> redirectPath mapping
 	pathRedirects map[string]map[string]struct{}

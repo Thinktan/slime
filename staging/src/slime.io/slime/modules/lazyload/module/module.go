@@ -59,13 +59,39 @@ func (m *Module) Clone() module.Module {
 }
 
 func (m *Module) Setup(opts module.ModuleOptions) error {
-	log.Debugf("lazyload setup begin")
+	log = log.WithField("addby", "tklog")
+	log.Infof("lazyload setup begin")
 
 	env, mgr, le := opts.Env, opts.Manager, opts.LeaderElectionCbs
 	pc, err := controllers.NewProducerConfig(env, m.config)
 	if err != nil {
 		return fmt.Errorf("unable to create ProducerConfig, %+v", err)
 	}
+	// {
+	//	EnablePrometheusSource:false PrometheusSourceConfig:{Api:<nil> Convertor:<nil>}
+	// 	AccessLogSourceConfig:{ServePort::8082
+	//	AccessLogConvertorConfigs:[{Name:lazyload-accesslog-convertor Handler:<nil>}]}
+	//	EnableMockSource:false EnableWatcherProducer:true
+	//	WatcherProducerConfig:{
+	//		Name:lazyload-watcher NeedUpdateMetricHandler:<nil>
+	//		MetricChan:0xc0001a18f0 WatcherTriggerConfig:{Kinds:[networking.istio.io/v1alpha3, Kind=Sidecar]
+	//		DynamicClient:0xc00043a4a0 EventChan:0xc0001a1960}}
+	//	EnableTickerProducer:true
+	//	TickerProducerConfig:{
+	//		Name:lazyload-ticker NeedUpdateMetricHandler:<nil>
+	//		MetricChan:0xc0001a19d0 TickerTriggerConfig:{Durations:[10s] EventChan:0xc0001a1a40}}
+	//		StopChan:0xc0001a1880}
+	//	module=lazyload pkg=controllers
+
+	// -- env: {
+	//	Config:global:{service:"app" istioNamespace:"istio-system" slimeNamespace:"mesh-operator"
+	//	log:{logLevel:"info" klogLevel:5} misc:{key:"aux-addr" value:":8081"}
+	//	misc:{key:"enableLeaderElection" value:"off"} misc:{key:"logSourcePort" value:":8082"}
+	//	misc:{key:"metrics-addr" value:":8080"} misc:{key:"pathRedirect" value:""}
+	//	misc:{key:"seLabelSelectorKeys" value:"app"} misc:{key:"xdsSourceEnableIncPush" value:"true"}}
+	//	name:"lazyload" enable:true general:{} kind:"lazyload" K8SClient:0xc0002ff040
+	//	DynamicClient:0xc00093abd0 HttpPathHandler:{Prefix:lazyload PathHandler:0xc000939a40}
+	//	ReadyManager:0x2224c20 Stop:0xc0005b6930 ConfigController:<nil> IstioConfigController:<nil>},
 
 	// 通过sfReconciler注册与ServiceFence资源相关的控制器
 	// 设置nsSvcCache等一系列结构题
@@ -73,7 +99,7 @@ func (m *Module) Setup(opts module.ModuleOptions) error {
 	sfReconciler := controllers.NewReconciler(
 		controllers.ReconcilerWithCfg(&m.config),
 		controllers.ReconcilerWithEnv(env),
-		controllers.ReconcilerWithProducerConfig(pc),
+		controllers.ReconcilerWithProducerConfig(pc), // 这里会设置好pc的watcher/ticker/accesslog相关的handler函数NeedUpdateMetricHandler
 	)
 	sfReconciler.Client = mgr.GetClient() // 获取 Kubernetes 的客户端，用于与 API Server 通信。
 	sfReconciler.Scheme = mgr.GetScheme() // 获取当前控制器的资源类型注册表（runtime.Scheme）
@@ -86,6 +112,7 @@ func (m *Module) Setup(opts module.ModuleOptions) error {
 	podName := os.Getenv("POD_NAME")
 
 	opts.InitCbs.AddStartup(func(ctx context.Context) {
+		log.Infof("AddStartup")
 		sfReconciler.StartCache(ctx)
 		if env.Config.Global != nil && env.Config.Global.Misc["enableLeaderElection"] == "on" {
 			log.Infof("delete leader labels before working")
@@ -99,13 +126,19 @@ func (m *Module) Setup(opts module.ModuleOptions) error {
 
 	// 从 ServiceFence 中加载流量信息到缓存，供动态流量控制使用。
 	cache, err := controllers.NewCache(env)
+	log.Infof("NewCache return: %+v", cache)
+	// -- cache
+	// istio-system/istio-egressgateway:map[]
+	// istio-system/istio-ingressgateway:map[]
+	//	istio-system/istiod:map[] kube-system/kube-dns:map[]
+	//	mesh-operator/lazyload:map[]
 	if err != nil {
 		return fmt.Errorf("GetCacheFromServicefence occured err: %s", err)
 	}
 	_ = source.Fullfill(cache)
 	log.Debugf("GetCacheFromServicefence %+v", cache)
 
-	// register svf reset
+	// register svf reset，将source设置为空
 	handler := &server.Handler{
 		HttpPathHandler: env.HttpPathHandler,
 		Source:          source,
@@ -127,12 +160,16 @@ func (m *Module) Setup(opts module.ModuleOptions) error {
 			R:       reconcile.Func(sfReconciler.ReconcileService),
 		})
 		// use FenceLabelKeyAlias ad switch to turn on/off workload fence
+		log.Infof("m.config.FenceLabelKeyAlias: ", m.config.FenceLabelKeyAlias)
 		if m.config.FenceLabelKeyAlias != "" {
+			log.Infof("do NewPodController")
 			podController := sfReconciler.NewPodController(env.K8SClient, m.config.FenceLabelKeyAlias)
 			// 为模块设置leader Election机制，选举成功后，调用模块的回调逻辑
 			le.AddOnStartedLeading(func(ctx context.Context) {
 				go podController.Run(ctx.Done())
 			})
+		} else {
+			log.Infof("not NewPodController") // --> do here
 		}
 	}
 
@@ -160,7 +197,7 @@ func (m *Module) Setup(opts module.ModuleOptions) error {
 			return
 		}
 		_ = source.Fullfill(cache)
-		log.Debugf("GetCacheFromServicefence is %+v", cache)
+		log.Infof("GetCacheFromServicefence is %+v", cache)
 	})
 
 	le.AddOnStartedLeading(func(ctx context.Context) {
@@ -190,6 +227,7 @@ func (m *Module) Setup(opts module.ModuleOptions) error {
 	if env.Config.Global != nil && env.Config.Global.Misc["enableLeaderElection"] == "on" {
 		log.Infof("add/delete leader label in StartedLeading/stoppedLeading")
 		le.AddOnStartedLeading(func(ctx context.Context) {
+			log.Infof("Leading management leader label")
 			first := make(chan struct{}, 1)
 			first <- struct{}{}
 			var retry <-chan time.Time

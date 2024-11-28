@@ -54,6 +54,18 @@ type DebugInfo struct {
 	NsSvcCache        map[string]map[string]struct{}
 	LabelSvcCache     map[LabelItem]map[string]struct{}
 	PortProtocolCache map[int32]map[Protocol]int32
+
+	defaultAddNamespaces []string
+	doAliasRules         []*domainAliasRule
+
+	IpTofence *map[string]types.NamespacedName
+	FenceToIp *map[types.NamespacedName]map[string]struct{}
+
+	workloadFenceLabelKey      string
+	workloadFenceLabelKeyAlias string
+
+	IpToSvcCache  *map[string]map[string]struct{}
+	SvcToIpsCache *map[string][]string
 }
 
 func (cache *NsSvcCache) ConvertToSerializable() map[string][]string {
@@ -95,10 +107,33 @@ func (r *ServicefenceReconciler) GetDebugInfo() DebugInfo {
 	r.labelSvcCache.RLock()
 	defer r.labelSvcCache.RUnlock()
 
+	r.portProtocolCache.RLock()
+	defer r.portProtocolCache.RUnlock()
+
+	r.ipTofence.RLock()
+	defer r.ipTofence.RUnlock()
+
+	r.fenceToIp.RLock()
+	defer r.fenceToIp.RUnlock()
+
+	r.ipToSvcCache.RLock()
+	defer r.ipToSvcCache.RUnlock()
+
+	r.svcToIpsCache.RLock()
+	defer r.svcToIpsCache.RUnlock()
+
 	return DebugInfo{
-		NsSvcCache:        r.nsSvcCache.Data,
-		LabelSvcCache:     r.labelSvcCache.Data,
-		PortProtocolCache: r.portProtocolCache.Data,
+		NsSvcCache:                 r.nsSvcCache.Data,
+		LabelSvcCache:              r.labelSvcCache.Data,
+		PortProtocolCache:          r.portProtocolCache.Data,
+		defaultAddNamespaces:       r.defaultAddNamespaces,
+		doAliasRules:               r.doAliasRules,
+		IpTofence:                  &r.ipTofence.Data,
+		FenceToIp:                  &r.fenceToIp.Data,
+		workloadFenceLabelKey:      r.workloadFenceLabelKey,
+		workloadFenceLabelKeyAlias: r.workloadFenceLabelKeyAlias,
+		IpToSvcCache:               &r.ipToSvcCache.Data,
+		SvcToIpsCache:              &r.svcToIpsCache.Data,
 	}
 }
 
@@ -214,6 +249,18 @@ func ReconcilerWithEnv(env bootstrap.Environment) ReconcilerOpts {
 		if env.Config.Global.IstioNamespace != env.Config.Global.SlimeNamespace {
 			sr.defaultAddNamespaces = append(sr.defaultAddNamespaces, env.Config.Global.SlimeNamespace)
 		}
+
+		log.Infof("tklog in ReconcilerWithEnv env: %+v, defaultAddNamespaces: %+v", env, sr.defaultAddNamespaces)
+		// -- env: {
+		//	Config:global:{service:"app" istioNamespace:"istio-system" slimeNamespace:"mesh-operator"
+		//	log:{logLevel:"info" klogLevel:5} misc:{key:"aux-addr" value:":8081"}
+		//	misc:{key:"enableLeaderElection" value:"off"} misc:{key:"logSourcePort" value:":8082"}
+		//	misc:{key:"metrics-addr" value:":8080"} misc:{key:"pathRedirect" value:""}
+		//	misc:{key:"seLabelSelectorKeys" value:"app"} misc:{key:"xdsSourceEnableIncPush" value:"true"}}
+		//	name:"lazyload" enable:true general:{} kind:"lazyload" K8SClient:0xc0002ff040
+		//	DynamicClient:0xc00093abd0 HttpPathHandler:{Prefix:lazyload PathHandler:0xc000939a40}
+		//	ReadyManager:0x2224c20 Stop:0xc0005b6930 ConfigController:<nil> IstioConfigController:<nil>},
+		// -- defaultAddNamespaces: [istio-system mesh-operator] module=lazyload pkg=controllers
 	}
 }
 
@@ -221,6 +268,10 @@ func ReconcilerWithCfg(cfg *config.Fence) ReconcilerOpts {
 	return func(sr *ServicefenceReconciler) {
 		sr.cfg = cfg
 		sr.doAliasRules = newDomainAliasRules(cfg.DomainAliases)
+		log.Infof("tklog in ReconcilerWithCfg cfg: %+v, doAliasRules: %+v", cfg, sr.doAliasRules)
+		// -- cfg: wormholePort:"9080" autoFence:true defaultFence:true autoPort:true globalSidecarMode:"cluster"
+		// metricSourceType:"accesslog",
+		// -- doAliasRules: []
 	}
 }
 
@@ -281,6 +332,7 @@ func (r *ServicefenceReconciler) Clear() {
 
 func (r *ServicefenceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := modmodel.ModuleLog.WithField(model.LogFieldKeyResource, req.NamespacedName)
+	log = log.WithField("reporter", "tklog").WithField("func", "Reconcile")
 
 	log.Infof("reconcile svf %s", req)
 

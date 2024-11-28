@@ -1,0 +1,86 @@
+
+&{Object:map
+    [
+        apiVersion:networking.istio.io/v1alpha3
+        kind:EnvoyFilter
+        metadata:map[name:to-global-sidecar namespace:istio-system]
+        spec:map[
+            configPatches:[
+                map[
+                    applyTo:VIRTUAL_HOST
+                    match:map[
+                        context:SIDECAR_OUTBOUND
+                        routeConfiguration:map[
+                            name:15014
+                            vhost:map[name:allow_any]
+                        ]
+                    ]
+                    patch:
+                        map[operation:REMOVE]
+                ]
+                map[
+                    applyTo:ROUTE_CONFIGURATION
+                    match:map[context:SIDECAR_OUTBOUND routeConfiguration:map[name:15014]]
+                    patch:map[
+                        operation:MERGE
+                        value:map[
+                            virtual_hosts: [map
+                                [
+                                    domains:[*]
+                                    name:allow_all
+                                    routes:[
+                                        map[match:map[prefix:/]
+                                        request_headers_to_add: [
+                                            map[
+                                                append:false
+                                                header:map[key:Slime-Orig-Dest value:%DOWNSTREAM_LOCAL_ADDRESS%]
+                                            ] map[append:false header:map[key:Slime-Source-Ns value:%ENVIRONMENT(POD_NAMESPACE)%]]] route:      map[cluster:outbound|80||global-sidecar.mesh-operator.svc.cluster.local timeout:0s]]]]]]]
+                ] map[applyTo:VIRTUAL_HOST match:map[context:SIDECAR_OUTBOUND proxy:       map[metadata:map[SLIME_APP:LAZYLOAD_GLOBAL_SIDECAR]] routeConfiguration:map[name:15014 vhost:map[name:allow_all]]] patch:map[operation:REMOVE]] map[applyTo:        ROUTE_CONFIGURATION match:map[context:SIDECAR_OUTBOUND proxy:map[metadata:map[SLIME_APP:LAZYLOAD_GLOBAL_SIDECAR]] routeConfiguration:map[name:15014]] patch:        map[operation:MERGE value:map[virtual_hosts:[map[domains:[*] name:allow_any_new routes:[map[match:map[prefix:/] route:map[cluster:PassthroughCluster timeout:       0s]]]]]]]] map[applyTo:VIRTUAL_HOST match:map[context:SIDECAR_OUTBOUND routeConfiguration:map[name:80 vhost:map[name:allow_any]]] patch:map[operation:REMOVE]]      map[applyTo:ROUTE_CONFIGURATION match:map[context:SIDECAR_OUTBOUND routeConfiguration:map[name:80]] patch:map[operation:MERGE value:map[virtual_hosts:              [map[domains:[*] name:allow_all routes:[map[match:map[prefix:/] request_headers_to_add:[map[append:false header:map[key:Slime-Orig-Dest value:                      %DOWNSTREAM_LOCAL_ADDRESS%]] map[append:false header:map[key:Slime-Source-Ns value:%ENVIRONMENT(POD_NAMESPACE)%]]] route:map[cluster:outbound|80||global-           sidecar.mesh-operator.svc.cluster.local timeout:0s]]]]]]]] map[applyTo:VIRTUAL_HOST match:map[context:SIDECAR_OUTBOUND proxy:map[metadata:map[SLIME_APP:            LAZYLOAD_GLOBAL_SIDECAR]] routeConfiguration:map[name:80 vhost:map[name:allow_all]]] patch:map[operation:REMOVE]] map[applyTo:ROUTE_CONFIGURATION match:            map[context:SIDECAR_OUTBOUND proxy:map[metadata:map[SLIME_APP:LAZYLOAD_GLOBAL_SIDECAR]] routeConfiguration:map[name:80]] patch:map[operation:MERGE value:           map[virtual_hosts:[map[domains:[*] name:allow_any_new routes:[map[match:map[prefix:/] route:map[cluster:PassthroughCluster timeout:0s]]]]]]]] map[applyTo:          VIRTUAL_HOST match:map[context:SIDECAR_OUTBOUND routeConfiguration:map[name:9080 vhost:map[name:allow_any]]] patch:map[operation:REMOVE]] map[applyTo:              ROUTE_CONFIGURATION match:map[context:SIDECAR_OUTBOUND routeConfiguration:map[name:9080]] patch:map[operation:MERGE value:map[virtual_hosts:[map[domains:[*]        name:allow_all routes:[map[match:map[prefix:/] request_headers_to_add:[map[append:false header:map[key:Slime-Orig-Dest value:%DOWNSTREAM_LOCAL_ADDRESS%]]           map[append:false header:map[key:Slime-Source-Ns value:%ENVIRONMENT(POD_NAMESPACE)%]]] route:map[cluster:outbound|80||global-sidecar.mesh-operator.svc.cluster.      local timeout:0s]]]]]]]] map[applyTo:VIRTUAL_HOST match:map[context:SIDECAR_OUTBOUND proxy:map[metadata:map[SLIME_APP:LAZYLOAD_GLOBAL_SIDECAR]]                     routeConfiguration:map[name:9080 vhost:map[name:allow_all]]] patch:map[operation:REMOVE]] map[applyTo:ROUTE_CONFIGURATION match:map[context:SIDECAR_OUTBOUND        proxy:map[metadata:map[SLIME_APP:LAZYLOAD_GLOBAL_SIDECAR]] routeConfiguration:map[name:9080]] patch:map[operation:MERGE value:map[virtual_hosts:[map[domains:[*     ] name:allow_any_new routes:[map[match:map[prefix:/] route:map[cluster:PassthroughCluster timeout:0s]]]]]]]]]]]}
+
+
+
+msg=create resource networking.istio.io/v1alpha3, Resource=envoyfilters istio-system/to-global-sidecar
+
+
+&{Object:
+    map[
+        apiVersion:v1 kind:Service
+        metadata:
+            map[
+                labels:map[app:global-sidecar service:global-sidecar slime.io/serviceFenced:false]
+                name:global-sidecar
+                namespace:mesh-operator
+                ownerReferences:[
+                    map[
+                        apiVersion:config.netease.com/v1alpha1
+                        blockOwnerDeletion:true kind:SlimeBoot
+                        name:lazyload uid:e0994958-c5e2-4004-ba1f-8c6045896d6f
+                    ]
+                ]
+            ]
+            spec:
+                map[
+                    ports:[
+                        map[name:http-15014 port:15014 protocol:TCP targetPort:15014]
+                        map[name:http-80 port:80 protocol:TCP targetPort:80]
+                        map[name:http-9080 port:9080 protocol:TCP targetPort:9080]
+                    ]
+                    selector:map[app:global-sidecar]
+                    sessionAffinity:None type:ClusterIP
+                ]
+    ]
+}
+msg=create resource /v1, Resource=services mesh-operator/global-sidecar
+
+
+&{Object:map[apiVersion:v1 data:map[cfg:wormholePorts:
+   1 - 15014
+   2 - 80
+   3 - 9080
+  ]
+  kind:ConfigMap
+  metadata:map[labels:map[lazyload.slime.io/config:global-sidecar]
+  name:global-sidecar namespace:mesh-operator
+  ownerReferences:    [map[apiVersion:config.netease.com/v1alpha1 blockOwnerDeletion:true kind:SlimeBoot name:lazyload uid:e0994958-c5e2-4004-ba1f-8c6045896d6f]]]]}
+msg=create resource /v1, Resource=configmaps mesh-operator/global-sidecar
+

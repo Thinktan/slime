@@ -84,6 +84,7 @@ func NewSum(module string, name string, help string) *MetricSum {
 func (sum *MetricSum) With(lbls ...attribute.KeyValue) *MetricSum {
 	opts := make([]api.AddOption, 0, len(sum.opts)+len(lbls))
 	opts = append(opts, sum.opts...)
+	// 继承原有的ctx/counter/initializer
 	return &MetricSum{
 		ctx:         sum.ctx,
 		counter:     sum.counter,

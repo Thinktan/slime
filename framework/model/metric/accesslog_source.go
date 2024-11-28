@@ -8,12 +8,24 @@ import (
 	service_accesslog "github.com/envoyproxy/go-control-plane/envoy/service/accesslog/v3"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
+
+	"crypto/rand"
+	"encoding/hex"
 )
 
+func randomHexString(length int) (string, error) {
+	bytes := make([]byte, length/2)
+	_, err := rand.Read(bytes)
+	if err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(bytes), nil
+}
+
 type AccessLogSource struct {
-	sync.Once
-	servePort  string
-	convertors []*AccessLogConvertor
+	sync.Once                        // 确保某些操作只执行一次
+	servePort  string                // gRPC服务监听的端口
+	convertors []*AccessLogConvertor // 用于将访问日志转换为业务指标
 }
 
 func NewAccessLogSource(config AccessLogSourceConfig) *AccessLogSource {
@@ -30,22 +42,27 @@ func NewAccessLogSource(config AccessLogSourceConfig) *AccessLogSource {
 func (s *AccessLogSource) StreamAccessLogs(logServer service_accesslog.AccessLogService_StreamAccessLogsServer) error {
 	log := log.WithField("reporter", "AccessLogSource").WithField("function", "StreamAccessLogs")
 	for {
+		// 从gRPC流中持续接受访问日志
 		message, err := logServer.Recv()
 		if err != nil {
 			return err
 		}
 
+		randomStr, err := randomHexString(16)
+		log2 := log.WithField("traceid", randomStr)
+
 		httpLogEntries := message.GetHttpLogs()
-		log.Debugf("got accesslog %s", httpLogEntries.String())
+		log2.Infof("recv accesslog %+v", httpLogEntries)
 		if httpLogEntries != nil {
 			for _, convertor := range s.convertors {
 				if err = convertor.Convert(httpLogEntries.LogEntry); err != nil {
-					log.Errorf("convertor [%s] converted error: %+v", convertor.Name(), err)
+					log2.Errorf("convertor [%s] converted error: %+v", convertor.Name(), err)
 				} else {
-					log.Debugf("convertor %s converts successfully", convertor.Name())
+					log2.Debugf("convertor [%s] converts successfully", convertor.Name())
 				}
 			}
 		}
+		log2.Infof("recv deal done")
 	}
 }
 
@@ -93,12 +110,12 @@ func (s *AccessLogSource) QueryMetric(queryMap QueryMap) (Metric, error) {
 					Value: convertor.CacheResultCopy()[meta],
 				}
 				metric[meta] = append(metric[meta], result)
-				log.Debugf("%s add metric from accesslog %+v", meta, result)
+				log.Infof("%s add metric from accesslog %+v", meta, result)
 			}
 		}
 	}
 
-	log.Debugf("successfully get metric from accesslog")
+	log.Infof("successfully get metric from accesslog")
 	return metric, nil
 }
 
@@ -152,6 +169,7 @@ func (s *AccessLogSource) Fullfill(cache map[string]map[string]string) error {
 
 			convertor.cacheResultCopy[meta] = tmpValue
 		}
+
 		convertor.convertorLock.Unlock()
 	}
 	return nil

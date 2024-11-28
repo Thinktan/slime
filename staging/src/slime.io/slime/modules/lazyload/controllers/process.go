@@ -77,7 +77,7 @@ func (r *ServicefenceReconciler) WatchMetric(ctx context.Context) {
 // ```
 func (r *ServicefenceReconciler) ConsumeMetric(metric metric.Metric) {
 	for meta, results := range metric {
-		log.Debugf("got metric for %s", meta)
+		log.Info("got metric for %s", meta)
 		namespace, name := strings.Split(meta, "/")[0], strings.Split(meta, "/")[1]
 		nn := types.NamespacedName{Namespace: namespace, Name: name}
 		if len(results) != 1 {
@@ -92,10 +92,12 @@ func (r *ServicefenceReconciler) ConsumeMetric(metric metric.Metric) {
 }
 
 func (r *ServicefenceReconciler) Refresh(req reconcile.Request, value map[string]string) (reconcile.Result, error) {
-	log := log.WithField("reporter", "ServicefenceReconciler").WithField("function", "Refresh")
+	log := log.WithField("reporter", "ServicefenceReconciler").WithField("function", "Refresh").WithField("addby", "tklog")
 
 	r.reconcileLock.Lock()
 	defer r.reconcileLock.Unlock()
+
+	log.Infof("req: %+v, value:%+v", req, value)
 
 	sf := &lazyloadv1alpha1.ServiceFence{}
 	err := r.Client.Get(context.TODO(), req.NamespacedName, sf)
@@ -117,7 +119,7 @@ func (r *ServicefenceReconciler) Refresh(req reconcile.Request, value map[string
 		return reconcile.Result{}, nil
 	}
 
-	log.Debugf("refresh with servicefence %s metricstatus old: %v, new: %v",
+	log.Infof("refresh with servicefence %s metricstatus old: %v, new: %v",
 		req.NamespacedName, sf.Status.MetricStatus, value)
 	// skip refresh when metric result has not changed
 	if mapStrStrEqual(sf.Status.MetricStatus, value) {

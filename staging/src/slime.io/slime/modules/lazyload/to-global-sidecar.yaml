@@ -1,0 +1,221 @@
+Name:         to-global-sidecar
+Namespace:    istio-system
+Labels:       <none>
+Annotations:  <none>
+API Version:  networking.istio.io/v1alpha3
+Kind:         EnvoyFilter
+Metadata:
+  Creation Timestamp:  2024-11-28T03:07:51Z
+  Generation:          1
+  Resource Version:    6645
+  UID:                 1c7cff63-698d-42a8-b808-0ae3e3950742
+Spec:
+  Config Patches:
+    Apply To:  VIRTUAL_HOST
+    Match:
+      Context:  SIDECAR_OUTBOUND
+      Route Configuration:
+        Name:  15014
+        Vhost:
+          Name:  allow_any
+    Patch:
+      Operation:  REMOVE
+    Apply To:     ROUTE_CONFIGURATION
+    Match:
+      Context:  SIDECAR_OUTBOUND
+      Route Configuration:
+        Name:  15014
+    Patch:
+      Operation:  MERGE
+      Value:
+        virtual_hosts:
+          Domains:
+            *
+          Name:  allow_all
+          Routes:
+            Match:
+              Prefix:  /
+            request_headers_to_add:
+              Append:  false
+              Header:
+                Key:    Slime-Orig-Dest
+                Value:  %DOWNSTREAM_LOCAL_ADDRESS%
+              Append:   false
+              Header:
+                Key:    Slime-Source-Ns
+                Value:  %ENVIRONMENT(POD_NAMESPACE)%
+            Route:
+              Cluster:  outbound|80||global-sidecar.mesh-operator.svc.cluster.local
+              Timeout:  0s
+    Apply To:           VIRTUAL_HOST
+    Match:
+      Context:  SIDECAR_OUTBOUND
+      Proxy:
+        Metadata:
+          SLIME_APP:  LAZYLOAD_GLOBAL_SIDECAR
+      Route Configuration:
+        Name:  15014
+        Vhost:
+          Name:  allow_all
+    Patch:
+      Operation:  REMOVE
+    Apply To:     ROUTE_CONFIGURATION
+    Match:
+      Context:  SIDECAR_OUTBOUND
+      Proxy:
+        Metadata:
+          SLIME_APP:  LAZYLOAD_GLOBAL_SIDECAR
+      Route Configuration:
+        Name:  15014
+    Patch:
+      Operation:  MERGE
+      Value:
+        virtual_hosts:
+          Domains:
+            *
+          Name:  allow_any_new
+          Routes:
+            Match:
+              Prefix:  /
+            Route:
+              Cluster:  PassthroughCluster
+              Timeout:  0s
+    Apply To:           VIRTUAL_HOST
+    Match:
+      Context:  SIDECAR_OUTBOUND
+      Route Configuration:
+        Name:  80
+        Vhost:
+          Name:  allow_any
+    Patch:
+      Operation:  REMOVE
+    Apply To:     ROUTE_CONFIGURATION
+    Match:
+      Context:  SIDECAR_OUTBOUND
+      Route Configuration:
+        Name:  80
+    Patch:
+      Operation:  MERGE
+      Value:
+        virtual_hosts:
+          Domains:
+            *
+          Name:  allow_all
+          Routes:
+            Match:
+              Prefix:  /
+            request_headers_to_add:
+              Append:  false
+              Header:
+                Key:    Slime-Orig-Dest
+                Value:  %DOWNSTREAM_LOCAL_ADDRESS%
+              Append:   false
+              Header:
+                Key:    Slime-Source-Ns
+                Value:  %ENVIRONMENT(POD_NAMESPACE)%
+            Route:
+              Cluster:  outbound|80||global-sidecar.mesh-operator.svc.cluster.local
+              Timeout:  0s
+    Apply To:           VIRTUAL_HOST
+    Match:
+      Context:  SIDECAR_OUTBOUND
+      Proxy:
+        Metadata:
+          SLIME_APP:  LAZYLOAD_GLOBAL_SIDECAR
+      Route Configuration:
+        Name:  80
+        Vhost:
+          Name:  allow_all
+    Patch:
+      Operation:  REMOVE
+    Apply To:     ROUTE_CONFIGURATION
+    Match:
+      Context:  SIDECAR_OUTBOUND
+      Proxy:
+        Metadata:
+          SLIME_APP:  LAZYLOAD_GLOBAL_SIDECAR
+      Route Configuration:
+        Name:  80
+    Patch:
+      Operation:  MERGE
+      Value:
+        virtual_hosts:
+          Domains:
+            *
+          Name:  allow_any_new
+          Routes:
+            Match:
+              Prefix:  /
+            Route:
+              Cluster:  PassthroughCluster
+              Timeout:  0s
+    Apply To:           VIRTUAL_HOST
+    Match:
+      Context:  SIDECAR_OUTBOUND
+      Route Configuration:
+        Name:  9080
+        Vhost:
+          Name:  allow_any
+    Patch:
+      Operation:  REMOVE
+    Apply To:     ROUTE_CONFIGURATION
+    Match:
+      Context:  SIDECAR_OUTBOUND
+      Route Configuration:
+        Name:  9080
+    Patch:
+      Operation:  MERGE
+      Value:
+        virtual_hosts:
+          Domains:
+            *
+          Name:  allow_all
+          Routes:
+            Match:
+              Prefix:  /
+            request_headers_to_add:
+              Append:  false
+              Header:
+                Key:    Slime-Orig-Dest
+                Value:  %DOWNSTREAM_LOCAL_ADDRESS%
+              Append:   false
+              Header:
+                Key:    Slime-Source-Ns
+                Value:  %ENVIRONMENT(POD_NAMESPACE)%
+            Route:
+              Cluster:  outbound|80||global-sidecar.mesh-operator.svc.cluster.local
+              Timeout:  0s
+    Apply To:           VIRTUAL_HOST
+    Match:
+      Context:  SIDECAR_OUTBOUND
+      Proxy:
+        Metadata:
+          SLIME_APP:  LAZYLOAD_GLOBAL_SIDECAR
+      Route Configuration:
+        Name:  9080
+        Vhost:
+          Name:  allow_all
+    Patch:
+      Operation:  REMOVE
+    Apply To:     ROUTE_CONFIGURATION
+    Match:
+      Context:  SIDECAR_OUTBOUND
+      Proxy:
+        Metadata:
+          SLIME_APP:  LAZYLOAD_GLOBAL_SIDECAR
+      Route Configuration:
+        Name:  9080
+    Patch:
+      Operation:  MERGE
+      Value:
+        virtual_hosts:
+          Domains:
+            *
+          Name:  allow_any_new
+          Routes:
+            Match:
+              Prefix:  /
+            Route:
+              Cluster:  PassthroughCluster
+              Timeout:  0s
+Events:                 <none>

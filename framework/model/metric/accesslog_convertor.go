@@ -42,6 +42,7 @@ func (alc *AccessLogConvertor) CacheResultCopy() map[string]map[string]string {
 func (alc *AccessLogConvertor) Convert(logEntry []*data_accesslog.HTTPAccessLogEntry) error {
 	l := log.WithField("reporter", "AccessLogConvertor").WithField("function", "Convert")
 	tmpResult, err := alc.handler(logEntry)
+	log.Debugf("tmpResult: %v, err: %+v", tmpResult, err)
 	if err != nil {
 		return err
 	}
@@ -81,6 +82,7 @@ func (alc *AccessLogConvertor) Convert(logEntry []*data_accesslog.HTTPAccessLogE
 		}
 		alc.cacheResultCopy = newCacheResultCopy
 	}
+	log.Infof("cacheResult: %+v", alc.cacheResult)
 
 	return err
 }

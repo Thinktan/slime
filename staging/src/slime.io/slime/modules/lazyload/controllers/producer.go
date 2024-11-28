@@ -100,6 +100,14 @@ func (r *ServicefenceReconciler) handleTickerEvent(_ trigger.TickerEvent) metric
 		}
 	}
 
+	log.Infof("tklog return qm: %+v", qm)
+	// map[
+	//	istio-system/istio-egressgateway:[{Name:lazyload-accesslog-convertor Query:}]
+	//	istio-system/istio-ingressgateway:[{Name:lazyload-accesslog-convertor Query:}]
+	//	istio-system/istiod:[{Name:lazyload-accesslog-convertor Query:}]
+	//	kube-system/kube-dns:[{Name:lazyload-accesslog-convertor Query:}]
+	//	mesh-operator/lazyload:[{Name:lazyload-accesslog-convertor Query:}]]
+
 	return qm
 }
 
@@ -115,6 +123,33 @@ func NewProducerConfig(env bootstrap.Environment, cfg config.Fence) (*metric.Pro
 	var prometheusSourceConfig metric.PrometheusSourceConfig
 	var accessLogSourceConfig metric.AccessLogSourceConfig
 	var err error
+
+	log.Infof("tklog env:%+v", env)
+	// env:{
+	//	Config:global:
+	//	{service:"app" istioNamespace:"istio-system" slimeNamespace:"mesh-operator"
+	//	log:{logLevel:"info" klogLevel:5}
+	//	misc:{key:"aux-addr" value:":8081"}
+	//	misc:{key:"enableLeaderElection" value:"off"}
+	//	misc:{key:"logSourcePort" value:":8082"}
+	//	misc:{key:"metrics-addr" value:":8080"}
+	//	misc:{key:"pathRedirect" value:""}
+	//	misc:{key:"seLabelSelectorKeys" value:"app"}
+	//	misc:{key:"xdsSourceEnableIncPush" value:"true"}
+	//	}
+	//	name:"lazyload" enable:true general:{}
+	//	kind:"lazyload" K8SClient:0xc0007896c0 DynamicClient:0xc00043a4a0
+	//	HttpPathHandler:{Prefix:lazyload PathHandler:0xc000953f20}
+	//	ReadyManager:0x2224c20 Stop:0xc0001a1880 ConfigController:<nil>
+	//	IstioConfigController:<nil>} module=lazyload pkg=controllers
+
+	log.Infof("tklog cfg:%+v", cfg)
+	// {state:{NoUnkeyedLiterals:{} DoNotCompare:[] DoNotCopy:[] atomicMessageInfo:0xc00031c808}
+	//sizeCache:0 unknownFields:[] WormholePort:[9080] AutoFence:true Namespace:[] Dispatches:[] DomainAliases:[]
+	//DefaultFence:true AutoPort:true ClusterGsNamespace: FenceLabelKeyAlias: EnableShortDomain:false
+	//DisableIpv4Passthrough:false PassthroughByDefault:false SupportH2:false AddEnvHeaderViaLua:false
+	//GlobalSidecarMode:cluster Render: MetricSourceType:accesslog CleanupWormholePort:false ManagementSelectors:[]
+	//NamespaceList:<nil> ProxyVersion: StableHost:[]} module=lazyload pkg=controllers
 
 	switch cfg.MetricSourceType {
 	case MetricSourceTypePrometheus:
@@ -141,6 +176,10 @@ func NewProducerConfig(env bootstrap.Environment, cfg config.Fence) (*metric.Pro
 	default:
 		return nil, stderrors.New("wrong metricSourceType")
 	}
+
+	log.Infof("tklog prometheusSlurceConfig: %+v", prometheusSourceConfig)
+	log.Infof("tklog accessLogSourceConfig: %+v", accessLogSourceConfig)
+	// {ServePort::8082 AccessLogConvertorConfigs:[{Name:lazyload-accesslog-convertor Handler:<nil>}]} module=lazyload pkg=controller
 
 	// init whole producer config
 	pc := &metric.ProducerConfig{
@@ -176,6 +215,23 @@ func NewProducerConfig(env bootstrap.Environment, cfg config.Fence) (*metric.Pro
 		},
 		StopChan: env.Stop,
 	}
+
+	log.Infof("tklog whole producer config: %+v", pc)
+	// {
+	//	EnablePrometheusSource:false PrometheusSourceConfig:{Api:<nil> Convertor:<nil>}
+	// 	AccessLogSourceConfig:{ServePort::8082
+	//	AccessLogConvertorConfigs:[{Name:lazyload-accesslog-convertor Handler:<nil>}]}
+	//	EnableMockSource:false EnableWatcherProducer:true
+	//	WatcherProducerConfig:{
+	//		Name:lazyload-watcher NeedUpdateMetricHandler:<nil>
+	//		MetricChan:0xc0001a18f0 WatcherTriggerConfig:{Kinds:[networking.istio.io/v1alpha3, Kind=Sidecar]
+	//		DynamicClient:0xc00043a4a0 EventChan:0xc0001a1960}}
+	//	EnableTickerProducer:true
+	//	TickerProducerConfig:{
+	//		Name:lazyload-ticker NeedUpdateMetricHandler:<nil>
+	//		MetricChan:0xc0001a19d0 TickerTriggerConfig:{Durations:[10s] EventChan:0xc0001a1a40}}
+	//		StopChan:0xc0001a1880}
+	//	module=lazyload pkg=controllers
 
 	return pc, nil
 }
@@ -218,13 +274,32 @@ func NewCache(env bootstrap.Environment) (map[string]map[string]string, error) {
 		return nil, fmt.Errorf("list servicefence error: %v", err)
 	}
 	ServicefenceLoads.Record(float64(len(svfList.Items)))
+	log.Infof("tklog NewCache svfList: %+v", svfList)
+	// {Object:
+	//	map[apiVersion:microservice.slime.io/v1alpha1 kind:ServiceFenceList
+	//	metadata:map[continue: resourceVersion:29444]]
+	//	Items:[
+	//	{Object:map[apiVersion:microservice.slime.io/v1alpha1
+	//	kind:ServiceFence metadata:map[creationTimestamp:2024-11-27T02:00:52Z generation:1
+	//	labels:map[app.kubernetes.io/created-by:fence-controller]
+	//	managedFields:[map[apiVersion:microservice.slime.io/v1alpha1 fieldsType:FieldsV1 fieldsV1:map[f:metadata:map[f:labels:map[.:map[] f:app.kubernetes.io/created-by:map[]]] f:spec:map[.:map[] f:enable:map[] f:workloadSelector:map[.:map[] f:fromService:map[]]]] manager:manager operation:Update time:2024-11-27T02:00:52Z] map[apiVersion:microservice.slime.io/v1alpha1 fieldsType:FieldsV1 fieldsV1:map[f:status:map[]] manager:manager operation:Update subresource:status time:2024-11-27T02:00:52Z]]
+	//	name:istio-egressgateway namespace:istio-system resourceVersion:1476 uid:8e6d862e-05eb-43cb-8382-71cba70a6796] spec:map[enable:true workloadSelector:map[fromService:true]] status:map[]]}
+	//	{Object:map[apiVersion:microservice.slime.io/v1alpha1 kind:ServiceFence metadata:map[creationTimestamp:2024-11-27T02:00:52Z generation:1 labels:map[app.kubernetes.io/created-by:fence-controller] managedFields:[map[apiVersion:microservice.slime.io/v1alpha1 fieldsType:FieldsV1 fieldsV1:map[f:metadata:map[f:labels:map[.:map[] f:app.kubernetes.io/created-by:map[]]] f:spec:map[.:map[] f:enable:map[] f:workloadSelector:map[.:map[] f:fromService:map[]]]] manager:manager operation:Update time:2024-11-27T02:00:52Z] map[apiVersion:microservice.slime.io/v1alpha1 fieldsType:FieldsV1 fieldsV1:map[f:status:map[]] manager:manager operation:Update subresource:status time:2024-11-27T02:00:52Z]]
+	//	name:istio-ingressgateway namespace:istio-system resourceVersion:1478 uid:68dd279d-8b68-40f9-9211-8afc95835166] spec:map[enable:true workloadSelector:map[fromService:true]] status:map[]]}
+	//	{Object:map[apiVersion:microservice.slime.io/v1alpha1 kind:ServiceFence metadata:map[creationTimestamp:2024-11-27T02:00:52Z generation:1 labels:map[app.kubernetes.io/created-by:fence-controller] managedFields:[map[apiVersion:microservice.slime.io/v1alpha1 fieldsType:FieldsV1 fieldsV1:map[f:metadata:map[f:labels:map[.:map[] f:app.kubernetes.io/created-by:map[]]] f:spec:map[.:map[] f:enable:map[] f:workloadSelector:map[.:map[] f:fromService:map[]]]] manager:manager operation:Update time:2024-11-27T02:00:52Z] map[apiVersion:microservice.slime.io/v1alpha1 fieldsType:FieldsV1 fieldsV1:map[f:status:map[]] manager:manager operation:Update subresource:status time:2024-11-27T02:00:52Z]]
+	//	name:istiod namespace:istio-system resourceVersion:1480 uid:cd9a3925-a4e5-4e9f-81ae-33b5b27dc749] spec:map[enable:true workloadSelector:map[fromService:true]] status:map[]]}
+	//	{Object:map[apiVersion:microservice.slime.io/v1alpha1 kind:ServiceFence metadata:map[creationTimestamp:2024-11-27T02:00:52Z generation:1 labels:map[app.kubernetes.io/created-by:fence-controller] managedFields:[map[apiVersion:microservice.slime.io/v1alpha1 fieldsType:FieldsV1 fieldsV1:map[f:metadata:map[f:labels:map[.:map[] f:app.kubernetes.io/created-by:map[]]] f:spec:map[.:map[] f:enable:map[] f:workloadSelector:map[.:map[] f:fromService:map[]]]] manager:manager operation:Update time:2024-11-27T02:00:52Z] map[apiVersion:microservice.slime.io/v1alpha1 fieldsType:FieldsV1 fieldsV1:map[f:status:map[]] manager:manager operation:Update subresource:status time:2024-11-27T02:00:52Z]]
+	//	name:kube-dns namespace:kube-system resourceVersion:1463 uid:54f7b0d5-810f-4c46-94da-7246043d4d1d] spec:map[enable:true workloadSelector:map[fromService:true]] status:map[]]}
+	//	{Object:map[apiVersion:microservice.slime.io/v1alpha1 kind:ServiceFence metadata:map[creationTimestamp:2024-11-27T02:00:52Z generation:1 labels:map[app.kubernetes.io/created-by:fence-controller] managedFields:[map[apiVersion:microservice.slime.io/v1alpha1 fieldsType:FieldsV1 fieldsV1:map[f:metadata:map[f:labels:map[.:map[] f:app.kubernetes.io/created-by:map[]]] f:spec:map[.:map[] f:enable:map[] f:workloadSelector:map[.:map[] f:fromService:map[]]]] manager:manager operation:Update time:2024-11-27T02:00:52Z] map[apiVersion:microservice.slime.io/v1alpha1 fieldsType:FieldsV1 fieldsV1:map[f:status:map[]] manager:manager operation:Update subresource:status time:2024-11-27T02:00:52Z]]
+	//	name:lazyload namespace:mesh-operator resourceVersion:1474 uid:b487dc51-0cd9-45d8-bcbf-44640dab6791] spec:map[enable:true workloadSelector:map[fromService:true]] status:map[]]}]}
 
 	for _, svf := range svfList.Items {
 		meta := svf.GetNamespace() + "/" + svf.GetName()
 		value := make(map[string]string)
+		log.Infof("tklog NewCache meta:%+v, value:%+v", meta, value)
 		ms, existed, err := unstructured.NestedMap(svf.Object, "status", "metricStatus")
 		if err != nil {
-			log.Errorf("got servicefence %s status.metricStatus error: %v", meta, err)
+			log.Errorf("tklog got servicefence %s status.metricStatus error: %v", meta, err)
 			continue
 		}
 		if existed {
@@ -245,14 +320,16 @@ func NewCache(env bootstrap.Environment) (map[string]map[string]string, error) {
 func accessLogHandler(logEntry []*data_accesslog.HTTPAccessLogEntry, ipToSvcCache *IpToSvcCache,
 	svcToIpsCache *SvcToIpsCache, ipTofenceCache *IpTofence, _ *FenceToIp, enableShortDomain bool,
 ) (map[string]map[string]string, error) {
-	log = log.WithField("reporter", "accesslog convertor").WithField("function", "accessLogHandler")
+	log = log.WithField("reporter", "AccessLogConvertor").WithField("function", "accessLogHandler")
 	// map sourceSvc to destinationSvc
 	result := make(map[string]map[string]string)
 	tmpResult := make(map[string]map[string]int)
 
 	for _, entry := range logEntry {
 		// fetch source ip
+		log.Debugf("entry: %+v", entry)
 		sourceIp, err := fetchSourceIp(entry)
+		log.Debugf("sourceIp: %+v, err: %+v", sourceIp, err)
 		if err != nil {
 			return nil, err
 		}
@@ -262,12 +339,14 @@ func accessLogHandler(logEntry []*data_accesslog.HTTPAccessLogEntry, ipToSvcCach
 
 		// fetch all the services which is the source ip belongs to
 		sourceSvcs, err := spliceSourceSvc(sourceIp, ipToSvcCache)
+		log.Debugf("sourceSvcs: %+v, err: %+v", sourceSvcs, err)
 		if err != nil {
 			return nil, err
 		}
 
 		// fetch workload fence which is the source ip associated with
 		fenceNN, err := spliceSourcefence(sourceIp, ipTofenceCache)
+		log.Debugf("fenceNN: %+v, err: %+v", fenceNN, err)
 		if err != nil {
 			fenceNN = nil
 			return nil, err
@@ -281,6 +360,7 @@ func accessLogHandler(logEntry []*data_accesslog.HTTPAccessLogEntry, ipToSvcCach
 		// fetch all destination services like:
 		// []string{`{destination_service="foo.default.svc.cluster.local"`}
 		destinationSvcs := spliceDestinationSvc(entry, sourceSvcs, svcToIpsCache, fenceNN, enableShortDomain)
+		log.Debugf("destinationSvcs: %+v", destinationSvcs)
 		if len(destinationSvcs) == 0 {
 			continue
 		}
@@ -331,13 +411,16 @@ func fetchSourceIp(entry *data_accesslog.HTTPAccessLogEntry) (string, error) {
 	if downstreamSock == nil || downstreamSock.SocketAddress == nil {
 		return "", stderrors.New("downstream socket address is nil")
 	}
-	log.Debugf("SourceEp is: %s", downstreamSock.SocketAddress.Address)
+	log.Infof("SourceEp is: %s", downstreamSock.SocketAddress.Address)
 	return downstreamSock.SocketAddress.Address, nil
 }
 
 func spliceSourceSvc(sourceIp string, ipToSvcCache *IpToSvcCache) ([]string, error) {
+	log = log.WithField("function", "spliceSourceSvc")
 	ipToSvcCache.RLock()
 	defer ipToSvcCache.RUnlock()
+
+	log.Debugf("sourceIp: %+v, iptoSvcCache: %+v", sourceIp, ipToSvcCache)
 
 	if svc, ok := ipToSvcCache.Data[sourceIp]; ok {
 		keys := make([]string, 0, len(svc))
@@ -347,13 +430,16 @@ func spliceSourceSvc(sourceIp string, ipToSvcCache *IpToSvcCache) ([]string, err
 		return keys, nil
 	}
 
-	log.Debugf("svc not found base on sourceIp %s", sourceIp)
+	log.Infof("svc not found base on sourceIp %s", sourceIp)
 	return []string{}, nil
 }
 
 func spliceSourcefence(sourceIp string, ipTofence *IpTofence) (*types.NamespacedName, error) {
 	ipTofence.RLock()
 	defer ipTofence.RUnlock()
+	log.WithField("function", "spliceSourcefence")
+
+	log.Debugf("sourceIp: %+v, ipTofence: %+v", sourceIp, ipTofence)
 
 	if nn, ok := ipTofence.Data[sourceIp]; ok {
 		return &nn, nil
@@ -382,8 +468,10 @@ func spliceDestinationSvc(
 ) []string {
 	log = log.WithField("reporter", "accesslog convertor").WithField("function", "spliceDestinationSvc")
 	var destSvcs []string
+	log.Debugf("sourceSvcs: %+v, svcToIpsCache: %+v, fenceNN: %+v, enableShortDomain: %+v", sourceSvcs, svcToIpsCache, fenceNN, enableShortDomain)
 
 	upstreamCluster := entry.CommonProperties.UpstreamCluster
+	log.Debugf("upstreamCluster: %+v", upstreamCluster)
 	parts := strings.Split(upstreamCluster, "|")
 	if len(parts) != 4 {
 		log.Warnf("UpstreamCluster is wrong: parts number is not 4, skip")
@@ -438,7 +526,7 @@ func spliceDestinationSvc(
 	for _, svc := range destSvcs {
 		result = append(result, fmt.Sprintf("{destination_service=\"%s\"}", svc))
 	}
-	log.Debugf("DestinationSvc is: %+v", result)
+	log.Infof("DestinationSvc is: %+v", result)
 	return result
 }
 

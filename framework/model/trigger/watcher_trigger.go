@@ -17,15 +17,16 @@ import (
 )
 
 type WatcherTrigger struct {
-	kinds         []schema.GroupVersionKind
-	dynamicClient dynamic.Interface
-	watchersMap   map[watch.Interface]chan struct{}
+	kinds         []schema.GroupVersionKind         // 需要监听的资源类型gvk
+	dynamicClient dynamic.Interface                 // k8s动态客户端，用于操作资源
+	watchersMap   map[watch.Interface]chan struct{} // 存储watch.Interface和对应的停止信号通道
 	eventChan     chan WatcherEvent
 }
 
+// 描述监听到的事件
 type WatcherEvent struct {
-	GVK schema.GroupVersionKind
-	NN  types.NamespacedName
+	GVK schema.GroupVersionKind // 事件对应资源的GV看
+	NN  types.NamespacedName    // 事件发生资源的命名空间和名称
 }
 
 type WatcherTriggerConfig struct {
@@ -73,7 +74,7 @@ func (t *WatcherTrigger) Start() {
 					w.Stop()
 					return
 				case e, ok := <-w.ResultChan():
-					l.Debugf("got watcher event: type %v, kind %v", e.Type, e.Object.GetObjectKind().GroupVersionKind())
+					l.Infof("got watcher event: type %v, kind %v", e.Type, e.Object.GetObjectKind().GroupVersionKind())
 					if !ok {
 						l.Warningf("a result chan of watcher is closed, break process loop")
 						return

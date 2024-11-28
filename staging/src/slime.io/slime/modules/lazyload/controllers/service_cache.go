@@ -18,6 +18,7 @@ import (
 )
 
 func (r *ServicefenceReconciler) StartCache(ctx context.Context) {
+	log := log.WithField("func", "StartCache").WithField("addby", "tklog")
 	factory := informers.NewSharedInformerFactory(r.env.K8SClient, 0)
 	r.factory = factory
 
@@ -58,6 +59,8 @@ func (r *ServicefenceReconciler) handleSvcAdd(_ context.Context, obj interface{}
 	if !ok {
 		return
 	}
+	log := log.WithField("func", "handleSvcAdd").WithField("addby", "tklog")
+	log.Infof("svc: %+v", svc)
 
 	r.addLabelSvcCache(svc)
 	r.addNsSvcCache(svc)
@@ -106,6 +109,10 @@ func (r *ServicefenceReconciler) addLabelSvcCache(svc *corev1.Service) {
 	ns := svc.GetNamespace()
 	nn := fmt.Sprintf("%s/%s", ns, svc.GetName())
 
+	log := log.WithField("func", "addLabelSvcCache").WithField("addby", "tklog")
+	log.Infof("labels: %+v", svc.GetLabels())
+	// -- labels: map[app:lazyload app.kubernetes.io/managed-by:Helm]
+
 	r.labelSvcCache.Lock()
 	defer r.labelSvcCache.Unlock()
 	for k, v := range svc.GetLabels() {
@@ -116,6 +123,35 @@ func (r *ServicefenceReconciler) addLabelSvcCache(svc *corev1.Service) {
 		}
 		r.labelSvcCache.Data[label][nn] = struct{}{}
 	}
+	log.Infof("labelSvcCache: %+v", r.labelSvcCache.Data)
+	// 一个nn可能有多个labels对，比如istio-system/istio-egressgate
+	// labelSvcCache:
+	//	map[
+	//		{Name:app Value:global-sidecar}:map[mesh-operator/global-sidecar:{}]
+	//		{Name:app Value:istio-egressgateway}:map[istio-system/istio-egressgateway:{}]
+	//		{Name:app Value:istio-ingressgateway}:map[istio-system/istio-ingressgateway:{}]
+	//		{Name:app Value:istiod}:map[istio-system/istiod:{}]
+	//		{Name:app Value:lazyload}:map[mesh-operator/lazyload:{}]
+	//		{Name:app.kubernetes.io/managed-by Value:Helm}:map[mesh-operator/lazyload:{}]
+	//		{Name:component Value:apiserver}:map[default/kubernetes:{}]
+	//		{Name:install.operator.istio.io/owning-resource Value:installed-state}:map[istio-system/istio-egressgateway:{} istio-system/istio-ingressgateway:{} istio-system/istiod:{}]
+	//		{Name:install.operator.istio.io/owning-resource-namespace Value:istio-system}:map[istio-system/istio-egressgateway:{} istio-system/istio-ingressgateway:{} istio-system/istiod:{}]
+	//		{Name:istio Value:egressgateway}:map[istio-system/istio-egressgateway:{}]
+	//		{Name:istio Value:ingressgateway}:map[istio-system/istio-ingressgateway:{}]
+	//		{Name:istio Value:pilot}:map[istio-system/istiod:{}]
+	//		{Name:istio.io/rev Value:default}:map[istio-system/istio-egressgateway:{} istio-system/istio-ingressgateway:{} istio-system/istiod:{}]
+	//		{Name:k8s-app Value:kube-dns}:map[kube-system/kube-dns:{}]
+	//		{Name:kubernetes.io/cluster-service Value:true}:map[kube-system/kube-dns:{}]
+	//		{Name:kubernetes.io/name Value:CoreDNS}:map[kube-system/kube-dns:{}]
+	//		{Name:operator.istio.io/component Value:EgressGateways}:map[istio-system/istio-egressgateway:{}]
+	//		{Name:operator.istio.io/component Value:IngressGateways}:map[istio-system/istio-ingressgateway:{}]
+	//		{Name:operator.istio.io/component Value:Pilot}:map[istio-system/istiod:{}]
+	//		{Name:operator.istio.io/managed Value:Reconcile}:map[istio-system/istio-egressgateway:{} istio-system/istio-ingressgateway:{} istio-system/istiod:{}]
+	//		{Name:operator.istio.io/version Value:1.23.1}:map[istio-system/istio-egressgateway:{} istio-system/istio-ingressgateway:{} istio-system/istiod:{}]
+	//		{Name:provider Value:kubernetes}:map[default/kubernetes:{}]
+	//		{Name:release Value:istio}:map[istio-system/istio-egressgateway:{} istio-system/istio-ingressgateway:{} istio-system/istiod:{}]
+	//		{Name:service Value:global-sidecar}:map[mesh-operator/global-sidecar:{}]
+	//		{Name:slime.io/serviceFenced Value:false}:map[mesh-operator/global-sidecar:{}]]
 }
 
 func (r *ServicefenceReconciler) deleteLabelSvcCache(svc *corev1.Service) {
@@ -124,14 +160,15 @@ func (r *ServicefenceReconciler) deleteLabelSvcCache(svc *corev1.Service) {
 	r.labelSvcCache.Lock()
 	defer r.labelSvcCache.Unlock()
 	for label, m := range r.labelSvcCache.Data {
-		delete(m, nn)
+		delete(m, nn) // 删二级
 		if len(m) == 0 {
-			delete(r.labelSvcCache.Data, label)
+			delete(r.labelSvcCache.Data, label) // 二级删完了删一级
 		}
 	}
 }
 
 func (r *ServicefenceReconciler) addNsSvcCache(svc *corev1.Service) {
+	log := log.WithField("func", "addNsSvcCache").WithField("addby", "tklog")
 	ns := svc.GetNamespace()
 	nn := fmt.Sprintf("%s/%s", ns, svc.GetName())
 
@@ -141,6 +178,7 @@ func (r *ServicefenceReconciler) addNsSvcCache(svc *corev1.Service) {
 		r.nsSvcCache.Data[ns] = make(map[string]struct{})
 	}
 	r.nsSvcCache.Data[ns][nn] = struct{}{}
+	log.Infof("nsSvcCache: %+v", r.nsSvcCache.Data)
 }
 
 func (r *ServicefenceReconciler) deleteNsSvcCache(svc *corev1.Service) {
@@ -157,6 +195,7 @@ func (r *ServicefenceReconciler) addPortProtocolCache(svc *corev1.Service) {
 	if svc.Name == model.GlobalSidecar {
 		return
 	}
+	log := log.WithField("func", "addPortProtocolCache").WithField("addby", "tklog")
 
 	r.portProtocolCache.Lock()
 	for _, port := range svc.Spec.Ports {
@@ -173,7 +212,7 @@ func (r *ServicefenceReconciler) addPortProtocolCache(svc *corev1.Service) {
 	}
 	r.portProtocolCache.Unlock()
 
-	log.Debugf("protocol cache: %+v", r.portProtocolCache.Data)
+	log.Infof("protocol cache: %+v", r.portProtocolCache.Data)
 }
 
 func (r *ServicefenceReconciler) deletePortProtocolCache(svc *corev1.Service) {
@@ -181,6 +220,7 @@ func (r *ServicefenceReconciler) deletePortProtocolCache(svc *corev1.Service) {
 	if svc.Name == model.GlobalSidecar {
 		return
 	}
+	log := log.WithField("func", "deletePortProtocolCache").WithField("addby", "tklog")
 
 	if !r.cfg.GetCleanupWormholePort() {
 		return
@@ -198,11 +238,12 @@ func (r *ServicefenceReconciler) deletePortProtocolCache(svc *corev1.Service) {
 	}
 	r.portProtocolCache.Unlock()
 
-	log.Debugf("protocol cache: %+v", r.portProtocolCache.Data)
+	log.Infof("protocol cache: %+v", r.portProtocolCache.Data)
 }
 
 func (r *ServicefenceReconciler) StartAutoPort(ctx context.Context) {
 	log := log.WithField("function", "StartAutoPort")
+	log = log.WithField("addby", "tklog")
 	initPort := r.cfg.WormholePort
 	needUpdate, successUpdate := false, true
 
@@ -216,6 +257,7 @@ func (r *ServicefenceReconciler) StartAutoPort(ctx context.Context) {
 		// wait for svc cache synced
 		cache.WaitForCacheSync(ctx.Done(), r.factory.Core().V1().Services().Informer().HasSynced)
 		log.Infof("Lazyload port auto management is running, init gs wormholePort: %v", initPort)
+		// -- initPort: [9080]
 
 		// list all svc and get http port
 		svcs, err := r.factory.Core().V1().Services().Lister().List(labels.NewSelector())
@@ -233,11 +275,15 @@ func (r *ServicefenceReconciler) StartAutoPort(ctx context.Context) {
 			log.Errorf("list all svc failed in autoport: %v", err)
 		}
 
+		log.Infof("record whilePort: %+v, sets:%+v", wormholePort, sets)
+		// - wormholePort: 9080, sets: [15014:{} 80:{} 9080:{}]
+
 		for port := range sets {
 			wormholePort = append(wormholePort, port)
 		}
 		sort.Strings(wormholePort)
 		log.Infof("all wormholeport from initport and informer : %v", wormholePort)
+		// [15014 80 9080]
 		firstUpdate := true
 		// polling request
 		pollTicker := time.NewTicker(10 * time.Second)
@@ -253,7 +299,7 @@ func (r *ServicefenceReconciler) StartAutoPort(ctx context.Context) {
 					log.Infof("first time to update resources")
 					firstUpdate = false
 				}
-				log.Debugf("need to update resources")
+				log.Infof("need to update resources")
 				successUpdate = updateResources(wormholePort, &r.env)
 				if !successUpdate {
 					UpdateExtraResourceFailed.Increment()
@@ -261,7 +307,7 @@ func (r *ServicefenceReconciler) StartAutoPort(ctx context.Context) {
 					retryCh = time.After(1 * time.Second)
 				}
 			} else {
-				log.Debugf("no need to update resources")
+				log.Infof("no need to update resources")
 			}
 
 			select {
@@ -272,7 +318,10 @@ func (r *ServicefenceReconciler) StartAutoPort(ctx context.Context) {
 			case <-retryCh:
 				retryCh = nil
 			}
+			log.Debugf("for run")
 		}
+
+		log.Debugf("go routine exit")
 	}()
 }
 
@@ -303,6 +352,10 @@ func reloadWormholePort(
 	portProtocolCache *PortProtocolCache,
 	cleaupWormholePort bool,
 ) ([]string, bool) {
+	log = log.WithField("addby", "tklog").WithField("func", "reloadWormholePort")
+	log.Debugf("req param - wormholePort: %+v, portProtocolCache: %+v, cleaupWormholePort: %+v", wormholePort, portProtocolCache, cleaupWormholePort)
+	// -- [15014 80 9080] cleanupWormholePort: false
+
 	updated := false
 	ports := make([]string, 0)
 
@@ -346,6 +399,9 @@ func reloadWormholePort(
 		updated = true
 		wormholePort = ports
 	}
+
+	log.Debugf("resp - wormholePort: %+v, updated: %+v", wormholePort, updated)
+	// wormholePort: [15014 80 9080] update: false
 
 	return wormholePort, updated
 }

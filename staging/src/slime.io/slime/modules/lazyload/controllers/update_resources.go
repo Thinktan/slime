@@ -112,13 +112,64 @@ func updateResources(wormholePort []string, env *bootstrap.Environment) bool {
 		return false
 	}
 
+	log.Debugf("chrt: %+v", chrt)
+
 	// values
 	owner, values, err := generateValuesFormSlimeboot(wormholePort, env)
 	if err != nil {
 		log.Errorf("generate values of global sidecar chart error: %v", err)
 		return false
 	}
-	log.Debugf("got values %v to render global sider chart", values)
+	log.Debugf("got values %+v to render global sider chart, owner: %+v", values, owner)
+	// map[
+	//	component:
+	//		map[globalSidecar:map[
+	//			enable:true
+	//			image:map[repository:docker.io/slimeio/slime-global-sidecar tag:v0.9.0]
+	//			port:80
+	//			probePort:20000
+	//			replicas:1
+	//			resources:map[
+	//				limits:map[cpu:400m memory:400Mi] requests:map[cpu:200m memory:200Mi]
+	//			]
+	//			sidecarInject:  map[enable:true labels:map[sidecar.istio.io/inject:true] mode:pod]
+	//		]
+	//	]
+	//	image:map[pullPolicy:Always repository:docker.io/thinktan/slime-lazyload tag:master-3927fe4_linux_amd64-dirty_bcb8701]
+	//	istioNamespace:istio-system
+	//	module:[
+	//		map[enable:true
+	//			general:map[autoFence:true autoPort:true
+	//				defaultFence:true globalSidecarMode:cluster metricSourceType:accesslog
+	//				render:lazyload wormholePort:[15014 80 9080]
+	//			]
+	//	global:map[istioNamespace:istio-system
+	//				log:map[logLevel: debug] misc:map[enableLeaderElection:off]
+	//				slimeNamespace:mesh-operator
+	//			]
+	//		kind:lazyload name:lazyload
+	//	]
+	//	]
+	//	namespace:mesh-operator
+	//	resources:map[limits:map[cpu: 600m memory:600Mi]
+	//	requests:map[cpu:300m memory:300Mi]]]
+
+	// -- owner
+	// &{TypeMeta:{Kind:SlimeBoot APIVersion:config.netease.com/v1alpha1}
+	//	ObjectMeta:{Name:lazyload GenerateName: Namespace:mesh-operator SelfLink: UID:e0994958-c5e2-4004-ba1f-8c6045896d6f
+	//	ResourceVersion:6602 Generation:1      CreationTimestamp:2024-11-28 03:07:32 +0000 UTC DeletionTimestamp:<nil>
+	//	DeletionGracePeriodSeconds:<nil> Labels:map[] Annotations:map[kubectl.kubernetes.io/
+	//	last-applied-configuration:{"apiVersion":"config.netease.com/v1alpha1","kind":"SlimeBoot",
+	//	"metadata":{"annotations":{},"name":"lazyload","namespace":"mesh-operator"},
+	//	"spec":{"component":{"globalSidecar":{"enable":true,"image":{"repository":"docker.io/slimeio/slime-global-sidecar","tag":"v0.9.0"},
+	//	"probePort": 20000,"resources":{"limits":{"cpu":"400m","memory":"400Mi"},"requests":{"cpu":"200m","memory":"200Mi"}},
+	//	"sidecarInject":{"enable":true,"labels":{"sidecar.istio.io/inject":"true"},"mode":"pod"}}},
+	//	"image":{"pullPolicy":"Always","repository":"docker.io/thinktan/slime-lazyload","tag":"master-3927fe4_linux_amd64-dirty_bcb8701"},
+	//	"istioNamespace":"istio-system","module":[{"enable":true,"general":{"autoFence":true,"autoPort":true,
+	//	"defaultFence":true,"globalSidecarMode": "cluster","metricSourceType":"accesslog","wormholePort":["9080"]},
+	//	"global":{"log":{"logLevel":"debug"},"slimeNamespace":"mesh-operator"},"kind":"lazyload", "name":"lazyload"}],
+	//	"namespace":"mesh-operator","resources":{"limits":{"cpu":"600m","memory":"600Mi"},
+	//	"requests":{"cpu":"300m","memory":"300Mi"}}}}
 
 	// rander to generate new resources
 	resources, err := generateNewReources(chrt, values)
@@ -126,11 +177,13 @@ func updateResources(wormholePort []string, env *bootstrap.Environment) bool {
 		log.Errorf("generate new resources error: %v", err)
 		return false
 	}
+	log.Debugf("got resources: %+v", resources)
 	ctx := context.Background()
 	for gvr, resList := range resources {
 		for _, res := range resList {
 			ns, name := res.GetNamespace(), res.GetName()
 			got, err := dynCli.Resource(gvr).Namespace(ns).Get(ctx, name, metav1.GetOptions{})
+			log.Debugf("ns: %+v, name: %+v, got: %+v", ns, name, got)
 			if err != nil {
 				if !errors.IsNotFound(err) {
 					log.Errorf("got resource %s %s/%s from apiserver error: %v", gvr, ns, name, err)
@@ -147,14 +200,18 @@ func updateResources(wormholePort []string, env *bootstrap.Environment) bool {
 					res.SetLabels(map[string]string{model.IstioRevLabel: env.SelfResourceRev()})
 				}
 
+				log.Debugf("create res: %+v", res)
+
 				_, err = dynCli.Resource(gvr).Namespace(ns).Create(ctx, res, metav1.CreateOptions{})
 				if err != nil {
 					log.Errorf("create resource %s %s/%s error: %v", gvr.String(), ns, name, err)
 					return false
 				}
 				log.Infof("create resource %s %s/%s successfully", gvr.String(), ns, name)
+
 			} else {
 				obj := mergeObject(gvr, got, res)
+				log.Debugf("else obj: %+v", obj)
 				_, err = dynCli.Resource(gvr).Namespace(ns).Update(ctx, obj, metav1.UpdateOptions{})
 				if err != nil {
 					log.Errorf("update resource %s %s/%s error: %v", gvr, ns, name, err)

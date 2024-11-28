@@ -247,13 +247,14 @@ func Main(bundle string, modules []Module) {
 		panic(err)
 	}
 
-	log.Infof("load module config of %s: %s, generalCfg: %s", bundle, string(mainModRawJson), string(mainModGeneralJson))
+	log.Infof("tklog load module config of %s: %s, generalCfg: %s", bundle, string(mainModRawJson), string(mainModGeneralJson))
 
-	log.Infof("this is a test line in main by tantao")
+	log.Infof("tklog mainModConfig: ", mainModConfig)
 
 	// check if main module is bundle or not
 	isBundle := mainModConfig.Bundle != nil
 	if !isBundle {
+		log.Infof("tklog not isBundle ", mainModConfig.Name)
 		if mainMod == nil {
 			log.Errorf("mod nil for %s", mainModConfig.Name)
 			fatal()
@@ -264,10 +265,14 @@ func Main(bundle string, modules []Module) {
 			config: mainModConfig,
 		}
 
+		log.Infof("tklog mc: %+v", mc)
+
 		if mainModConfig.Enable {
 			mcs = append(mcs, mc)
 		}
+		//log.Infof("tklog mcs: ", mcs)
 	} else {
+		log.Infof("tklog isBundle ", mainModConfig.Name)
 		for _, modCfg := range mainModConfig.Bundle.Modules {
 			mod, modParsedCfg, err := LoadModule(modCfg.Name, modGetter, mainModConfig)
 			if err != nil {
@@ -278,7 +283,7 @@ func Main(bundle string, modules []Module) {
 				fatal()
 			}
 
-			log.Infof("load raw module config of bundle item %s: %s, general: %s",
+			log.Infof("tklog load raw module config of bundle item %s: %s, general: %s",
 				modCfg.Name, string(modParsedCfg.RawJson), string(modParsedCfg.GeneralJson))
 
 			mc := &moduleConfig{
@@ -305,6 +310,7 @@ func Main(bundle string, modules []Module) {
 			log.Errorf("mod %s InitScheme met err %v", mc.module.Kind(), err)
 			fatal()
 		}
+		log.Infof("tklog modKinds: ", modKinds)
 	}
 
 	var conf *restclient.Config
@@ -315,12 +321,13 @@ func Main(bundle string, modules []Module) {
 		}
 	} else {
 		conf = ctrl.GetConfigOrDie()
+		log.Infof("tklog GetConfigOrDie conf: %+v", conf)
 	}
 
 	if mainModConfig.Global != nil && mainModConfig.Global.ClientGoTokenBucket != nil {
 		conf.Burst = int(mainModConfig.Global.ClientGoTokenBucket.Burst)
 		conf.QPS = float32(mainModConfig.Global.ClientGoTokenBucket.Qps)
-		log.Infof("set burst: %d, qps %f based on user-specified value in client config", conf.Burst, conf.QPS)
+		log.Infof("tk logset burst: %d, qps %f based on user-specified value in client config", conf.Burst, conf.QPS)
 	}
 
 	// setup for leaderelection
@@ -338,13 +345,16 @@ func Main(bundle string, modules []Module) {
 		}
 		le = leaderelection.NewKubeLeaderElector(rl)
 		mgrOpts = mgrOptionsWithLeaderElection(mgrOpts, rl)
+		log.Infof("tklog build KubeLeaderElector, mgrOpts: %+v", mgrOpts)
 	} else {
 		le = leaderelection.NewAlwaysLeader()
+		log.Infof("tklog build AlwaysLeader, le: %+v", le)
 	}
 
 	mgrOpts.Scheme = scheme
 	mgrOpts.MetricsBindAddress = mainModConfig.Global.Misc["metrics-addr"]
 	mgrOpts.Port = 9443
+	log.Infof("tklog MetricsBindAddress: ", mgrOpts.MetricsBindAddress)
 	// 控制器的生命周期由框架管理器（Manager）控制
 	mgr, err := ctrl.NewManager(conf, mgrOpts)
 	if err != nil {
@@ -372,7 +382,9 @@ func Main(bundle string, modules []Module) {
 
 	// parse pathRedirect param
 	pathRedirects := make(map[string]string)
+	log.Infof("tklog pathRedirects: ", mainModConfig.Global.Misc["pathRedirect"])
 	if mainModConfig.Global.Misc["pathRedirect"] != "" {
+		log.Infof("tklog conf pathRedirect != kong")
 		mappings := strings.Split(mainModConfig.Global.Misc["pathRedirect"], ",")
 		for _, m := range mappings {
 			paths := strings.Split(m, "->")
@@ -384,8 +396,10 @@ func Main(bundle string, modules []Module) {
 			pathRedirects[redirectPath] = path
 		}
 	}
+	fmt.Println("tklog pathRedirections: ", pathRedirects)
 
 	ph := bootstrap.NewPathHandler(pathRedirects)
+	log.Infof("tklog ph: %+v", ph)
 
 	readyMgr := &moduleReadyManager{moduleReadyCheckers: map[string][]readyChecker{}}
 
@@ -397,20 +411,26 @@ func Main(bundle string, modules []Module) {
 	var configController, istioConfigController bootstrap.ConfigController
 
 	if mainModConfig.GetGlobal() != nil && len(mainModConfig.GetGlobal().GetConfigSources()) > 0 {
+		log.Infof("tklog new configController")
 		configController, err = bootstrap.NewConfigController(mainModConfig.GetGlobal().GetConfigSources(), ctx.Done())
 		if err != nil {
 			log.Warnf("new ConfigController failed: %+v", err)
 			configController = nil
 		}
+	} else {
+		log.Infof("tklog do not NewConfigController")
 	}
 
 	if mainModConfig.GetGlobal() != nil && mainModConfig.GetGlobal().IstioConfigSource != nil {
+		log.Infof("tklog new istioConfigController")
 		istioConfigController, err = bootstrap.NewConfigController(
 			[]*bootconfig.ConfigSource{mainModConfig.GetGlobal().IstioConfigSource}, ctx.Done())
 		if err != nil {
 			log.Warnf("new IstioConfigController error: %+v", err)
 			istioConfigController = nil
 		}
+	} else {
+		log.Infof("tklog do not new istioConfigController")
 	}
 
 	env := bootstrap.Environment{
@@ -423,6 +443,7 @@ func Main(bundle string, modules []Module) {
 	}
 
 	// setup modules
+	// 设置指标记录
 	monitoring.SubModulesCount.Record(float64(len(mcs)))
 	for _, mc := range mcs {
 		modCfg := mc.config
@@ -444,7 +465,10 @@ func Main(bundle string, modules []Module) {
 			Stop: ctx.Done(),
 		}
 
+		log.Infof("tklog moduleEnv: %v", moduleEnv)
+
 		if lm, ok := mc.module.(LegcyModule); ok {
+			log.Infof("tklog before InitManager")
 			if err := lm.InitManager(mgr, moduleEnv, cbs); err != nil {
 				log.Errorf("mod %s InitManager met err %v", modCfg.Name, err)
 				fatal()
@@ -455,6 +479,7 @@ func Main(bundle string, modules []Module) {
 			//   注册控制器
 			//   配置Leader Election会调
 			//   设置指标采集逻辑
+			log.Infof("tklog before module Setup")
 			if err := mc.module.Setup(ModuleOptions{
 				Env:               moduleEnv,
 				InitCbs:           cbs,
@@ -469,19 +494,25 @@ func Main(bundle string, modules []Module) {
 
 	// run ConfigController
 	if configController != nil {
+		log.Infof("tklog run configController")
 		_, err = bootstrap.RunController(configController, mainModConfig, mgr.GetConfig())
 		if err != nil {
 			log.Errorf("run config controller failed: %s", err)
 			return
 		}
+	} else {
+		log.Infof("tklog do not run configController")
 	}
 
 	if istioConfigController != nil {
+		log.Infof("tklog run istioConfigController")
 		_, err = bootstrap.RunIstioController(istioConfigController, mainModConfig)
 		if err != nil {
 			log.Errorf("run config controller failed: %s", err)
 			return
 		}
+	} else {
+		log.Infof("tklog do not run istioConfigController")
 	}
 
 	// Create the Prometheus exporter.
@@ -497,6 +528,7 @@ func Main(bundle string, modules []Module) {
 	}()
 
 	// Run the runnable function registered by the submodule
+	log.Infof("tklog len(startups): ", len(startups))
 	for _, startup := range startups {
 		startup(ctx)
 	}
