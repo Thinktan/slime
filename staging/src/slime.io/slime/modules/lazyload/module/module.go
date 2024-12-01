@@ -59,7 +59,7 @@ func (m *Module) Clone() module.Module {
 }
 
 func (m *Module) Setup(opts module.ModuleOptions) error {
-	log = log.WithField("addby", "tklog")
+	log = log.WithField("function", "Setup")
 	log.Infof("lazyload setup begin")
 
 	env, mgr, le := opts.Env, opts.Manager, opts.LeaderElectionCbs
@@ -121,7 +121,7 @@ func (m *Module) Setup(opts module.ModuleOptions) error {
 	})
 
 	// build metric source
-	// 通过 metric.NewSource 构建指标源。
+	// 通过 metric.NewSource 构建指标源。 只准备好配置，比如servePort端口以及converter-handler函数配置
 	source := metric.NewSource(pc)
 
 	// 从 ServiceFence 中加载流量信息到缓存，供动态流量控制使用。
@@ -130,12 +130,13 @@ func (m *Module) Setup(opts module.ModuleOptions) error {
 	// -- cache
 	// istio-system/istio-egressgateway:map[]
 	// istio-system/istio-ingressgateway:map[]
-	//	istio-system/istiod:map[] kube-system/kube-dns:map[]
+	//	istio-system/istiod:map[]
+	//	kube-system/kube-dns:map[]
 	//	mesh-operator/lazyload:map[]
 	if err != nil {
 		return fmt.Errorf("GetCacheFromServicefence occured err: %s", err)
 	}
-	_ = source.Fullfill(cache)
+	_ = source.Fullfill(cache) // 填充到每个Convertor的cacheResult里面
 	log.Debugf("GetCacheFromServicefence %+v", cache)
 
 	// register svf reset，将source设置为空

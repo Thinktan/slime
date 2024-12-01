@@ -41,20 +41,25 @@ func (p *WatcherProducer) HandleWatcherEvent() {
 				l.Warningf("watcher event channel closed, break process loop")
 				return
 			}
-			l.Debugf("got watcher trigger event")
+			l.Debugf("got watcher trigger event [%+v]", event)
 			// reconciler callback
 			queryMap := p.needUpdateMetricHandler(event)
 			if queryMap == nil {
 				l.Debugf("queryMap is nil, finish")
 				continue
 			}
+			// queryMap: map[istio-system/istio-egressgateway:[{lazyload-accesslog-convertor }]]
+			// key对wathcer监听到的sidecar资源对应的service；
 
 			// get metric
 			metric, err := p.source.QueryMetric(queryMap)
 			if err != nil {
-				l.Errorf("%v", err)
+				l.Errorf("err %v", err)
 				continue
 			}
+
+			log.Debugf("metric: %+v", metric)
+			// map[istio-system/istio-egressgateway:[{Name:lazyload-accesslog-convertor Value:map[]}]]
 
 			// produce metric event
 			p.MetricChan <- metric

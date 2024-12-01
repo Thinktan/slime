@@ -76,8 +76,9 @@ func (r *ServicefenceReconciler) WatchMetric(ctx context.Context) {
 //
 // ```
 func (r *ServicefenceReconciler) ConsumeMetric(metric metric.Metric) {
+	log := log.WithField("reporter", "ServicefenceReconciler").WithField("function", "ConsumeMetric")
 	for meta, results := range metric {
-		log.Info("got metric for %s", meta)
+		log.Debugf("got metric for %+v, result %+v", meta, results)
 		namespace, name := strings.Split(meta, "/")[0], strings.Split(meta, "/")[1]
 		nn := types.NamespacedName{Namespace: namespace, Name: name}
 		if len(results) != 1 {
@@ -92,7 +93,7 @@ func (r *ServicefenceReconciler) ConsumeMetric(metric metric.Metric) {
 }
 
 func (r *ServicefenceReconciler) Refresh(req reconcile.Request, value map[string]string) (reconcile.Result, error) {
-	log := log.WithField("reporter", "ServicefenceReconciler").WithField("function", "Refresh").WithField("addby", "tklog")
+	log := log.WithField("reporter", "ServicefenceReconciler").WithField("function", "Refresh")
 
 	r.reconcileLock.Lock()
 	defer r.reconcileLock.Unlock()
@@ -110,6 +111,8 @@ func (r *ServicefenceReconciler) Refresh(req reconcile.Request, value map[string
 		}
 	}
 
+	log.Debugf("sf: %+v", sf)
+
 	if sf == nil {
 		log.Info("ServiceFence Not Found, skip")
 		return reconcile.Result{}, nil
@@ -123,6 +126,7 @@ func (r *ServicefenceReconciler) Refresh(req reconcile.Request, value map[string
 		req.NamespacedName, sf.Status.MetricStatus, value)
 	// skip refresh when metric result has not changed
 	if mapStrStrEqual(sf.Status.MetricStatus, value) {
+		log.Debugf("mapStrStrEqual servicefence: %s", req.NamespacedName)
 		return reconcile.Result{}, nil
 	}
 	// use updateVisitedHostStatus to update svf.spec and svf.status
@@ -157,6 +161,8 @@ func mapStrStrEqual(m1, m2 map[string]string) bool {
 
 // second bool value means: is it clearly known to be managed
 func (r *ServicefenceReconciler) isNsFenced(ns *corev1.Namespace) (bool, bool) {
+	log := log.WithField("reporter", "ServicefenceReconciler").WithField("function", "isNsFenced")
+	log.Debugf("ns: %+v", ns)
 	if ns != nil && ns.Labels != nil {
 		switch ns.Labels[LabelServiceFenced] {
 		case ServiceFencedTrue:
@@ -169,8 +175,11 @@ func (r *ServicefenceReconciler) isNsFenced(ns *corev1.Namespace) (bool, bool) {
 }
 
 func (r *ServicefenceReconciler) isServiceFenced(ctx context.Context, svc *corev1.Service) (bool, error) {
+	log := log.WithField("reporter", "ServicefenceReconciler").WithField("function", "isServiceFenced")
 	var svcLabel string
 	var err error
+
+	log.Debugf("svc: %+v", svc)
 
 	if svc.Labels != nil {
 		svcLabel = svc.Labels[LabelServiceFenced]
@@ -212,6 +221,7 @@ func (r *ServicefenceReconciler) ReconcileService(ctx context.Context, req ctrl.
 }
 
 func (r *ServicefenceReconciler) ReconcileNamespace(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	log := log.WithField("reporter", "ServicefenceReconciler").WithField("function", "ReconcileNamespace")
 	log.Debugf("reconcile namespace %s", req.Name)
 	// Fetch the namespace instance
 	ns := &corev1.Namespace{}
@@ -250,11 +260,16 @@ func (r *ServicefenceReconciler) refreshFenceStatusOfService(
 	svc *corev1.Service,
 	nn types.NamespacedName,
 ) (reconcile.Result, error) {
+	log := log.WithField("reporter", "ServicefenceReconciler").WithField("function", "Refresh")
+	log.Debugf("svc: %+v", svc)
+	log.Debugf("nn: %+v", nn)
+
 	// if ns not in scope, clean related svf and return
 	if in, err := r.nsInScope(ctx, svc, nn); err != nil {
 		log.Errorf("nsFilterAndClean error, %+v", err)
 		return reconcile.Result{}, err
 	} else if !in {
+		log.Debugf("!in %+v", in)
 		return reconcile.Result{}, nil
 	}
 
@@ -264,19 +279,21 @@ func (r *ServicefenceReconciler) refreshFenceStatusOfService(
 		err := r.Client.Get(ctx, nn, svc)
 		if err != nil {
 			if errors.IsNotFound(err) {
+				log.Debugf("get service %s not found, %+v", nn, err)
 				svc = nil
 			} else {
 				log.Errorf("get service %s error, %+v", nn, err)
 				return reconcile.Result{}, err
 			}
 		}
+		log.Debugf("after Get svc: %+v", svc)
 	} else {
 		nn = types.NamespacedName{
 			Namespace: svc.Namespace,
 			Name:      svc.Name,
 		}
 	}
-	log.Infof("process namespacename %+v in refreshFenceStatusOfService", nn)
+	log.Infof("process namespacename %+v ---- %+v in refreshFenceStatusOfService", nn, svc)
 
 	// Fetch the ServiceFence instance
 	sf := &lazyloadv1alpha1.ServiceFence{}
@@ -290,11 +307,13 @@ func (r *ServicefenceReconciler) refreshFenceStatusOfService(
 			return reconcile.Result{}, err
 		}
 	}
+	log.Debugf("sf: %+v", sf)
 
 	if sf == nil {
 		// ignore services without label selector
 		if svc != nil && len(svc.Spec.Selector) > 0 {
 			if fenced, err := r.isServiceFenced(ctx, svc); err != nil {
+				log.Debugf("isServiceFenced failed, %+v", err)
 				return reconcile.Result{}, err
 			} else if fenced {
 				// add svc -> add sf
@@ -320,9 +339,12 @@ func (r *ServicefenceReconciler) refreshFenceStatusOfService(
 				}
 				ServiceFenceCreations.Increment()
 				log.Infof("create fence succeed %s:%s in refreshFenceStatusOfService", sf.Namespace, sf.Name)
+				log.Infof("sf:%+v", sf)
 			} else {
 				log.Infof("service %s is not fenced, skip create servicefence", nn)
 			}
+		} else {
+			log.Debugf("do nothing in 346")
 		}
 	} else if rev := model.IstioRevFromLabel(sf.Labels); !r.env.RevInScope(rev) {
 		// check if svc needs auto fence created
@@ -340,6 +362,7 @@ func (r *ServicefenceReconciler) refreshFenceStatusOfService(
 		}
 
 		if fenced, err := r.isServiceFenced(ctx, svc); err != nil {
+			log.Errorf("isServiceFenced failed, %+v", err)
 			return reconcile.Result{}, err
 		} else if !fenced {
 			log.Infof("svc is not fenced and delete svf %s:%s", svc.Namespace, svc.Name)

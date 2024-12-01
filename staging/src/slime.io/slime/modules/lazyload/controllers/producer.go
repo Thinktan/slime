@@ -35,6 +35,8 @@ const (
 
 // call back function for watcher producer
 func (r *ServicefenceReconciler) handleWatcherEvent(event trigger.WatcherEvent) metric.QueryMap {
+	log := log.WithField("func", "handleWatcherEvent")
+	log.Debugf("watcher event: %+v", event)
 	// check event
 	gvks := []schema.GroupVersionKind{
 		{Group: "networking.istio.io", Version: "v1alpha3", Kind: "Sidecar"},
@@ -46,6 +48,7 @@ func (r *ServicefenceReconciler) handleWatcherEvent(event trigger.WatcherEvent) 
 		}
 	}
 	if !invalidEvent {
+		log.Debugf("invalid Event, InterestMest: %+v", r.getInterestMeta())
 		return nil
 	}
 	// generate query map for producer
@@ -68,6 +71,8 @@ func (r *ServicefenceReconciler) handleWatcherEvent(event trigger.WatcherEvent) 
 	}
 
 	qm[event.NN.String()] = hs
+	log.Debugf("qm: +v", qm)
+
 	return qm
 }
 
@@ -78,6 +83,7 @@ func (r *ServicefenceReconciler) handleTickerEvent(_ trigger.TickerEvent) metric
 	// generate query map for producer
 	// check metric source type
 	qm := make(map[string][]metric.Handler)
+	log := log.WithField("func", "handleTickerEvent")
 
 	switch r.cfg.MetricSourceType {
 	case MetricSourceTypePrometheus:
@@ -100,7 +106,7 @@ func (r *ServicefenceReconciler) handleTickerEvent(_ trigger.TickerEvent) metric
 		}
 	}
 
-	log.Infof("tklog return qm: %+v", qm)
+	log.Infof("qm: %+v", qm)
 	// map[
 	//	istio-system/istio-egressgateway:[{Name:lazyload-accesslog-convertor Query:}]
 	//	istio-system/istio-ingressgateway:[{Name:lazyload-accesslog-convertor Query:}]
@@ -279,10 +285,19 @@ func NewCache(env bootstrap.Environment) (map[string]map[string]string, error) {
 	//	map[apiVersion:microservice.slime.io/v1alpha1 kind:ServiceFenceList
 	//	metadata:map[continue: resourceVersion:29444]]
 	//	Items:[
-	//	{Object:map[apiVersion:microservice.slime.io/v1alpha1
-	//	kind:ServiceFence metadata:map[creationTimestamp:2024-11-27T02:00:52Z generation:1
-	//	labels:map[app.kubernetes.io/created-by:fence-controller]
-	//	managedFields:[map[apiVersion:microservice.slime.io/v1alpha1 fieldsType:FieldsV1 fieldsV1:map[f:metadata:map[f:labels:map[.:map[] f:app.kubernetes.io/created-by:map[]]] f:spec:map[.:map[] f:enable:map[] f:workloadSelector:map[.:map[] f:fromService:map[]]]] manager:manager operation:Update time:2024-11-27T02:00:52Z] map[apiVersion:microservice.slime.io/v1alpha1 fieldsType:FieldsV1 fieldsV1:map[f:status:map[]] manager:manager operation:Update subresource:status time:2024-11-27T02:00:52Z]]
+	//	{Object:
+	//	map[apiVersion:microservice.slime.io/v1alpha1
+	//	kind:ServiceFence
+	//	metadata:map[creationTimestamp:2024-11-27T02:00:52Z generation:1
+	//		labels:map[app.kubernetes.io/created-by:fence-controller]
+	//		managedFields:[map[apiVersion:microservice.slime.io/v1alpha1 fieldsType:FieldsV1
+	//		fieldsV1:map[f:metadata:map[f:labels:map[.:map[] f:app.kubernetes.io/created-by:map[]]]
+	//		f:spec:map[.:map[] f:enable:map[] f:workloadSelector:map[.:map[]
+	//		f:fromService:map[]]]] manager:manager
+	//		operation:Update time:2024-11-27T02:00:52Z]
+	//	map[apiVersion:microservice.slime.io/v1alpha1
+	//	fieldsType:FieldsV1 fieldsV1:map[f:status:map[]] manager:manager operation:Update
+	//	subresource:status time:2024-11-27T02:00:52Z]]
 	//	name:istio-egressgateway namespace:istio-system resourceVersion:1476 uid:8e6d862e-05eb-43cb-8382-71cba70a6796] spec:map[enable:true workloadSelector:map[fromService:true]] status:map[]]}
 	//	{Object:map[apiVersion:microservice.slime.io/v1alpha1 kind:ServiceFence metadata:map[creationTimestamp:2024-11-27T02:00:52Z generation:1 labels:map[app.kubernetes.io/created-by:fence-controller] managedFields:[map[apiVersion:microservice.slime.io/v1alpha1 fieldsType:FieldsV1 fieldsV1:map[f:metadata:map[f:labels:map[.:map[] f:app.kubernetes.io/created-by:map[]]] f:spec:map[.:map[] f:enable:map[] f:workloadSelector:map[.:map[] f:fromService:map[]]]] manager:manager operation:Update time:2024-11-27T02:00:52Z] map[apiVersion:microservice.slime.io/v1alpha1 fieldsType:FieldsV1 fieldsV1:map[f:status:map[]] manager:manager operation:Update subresource:status time:2024-11-27T02:00:52Z]]
 	//	name:istio-ingressgateway namespace:istio-system resourceVersion:1478 uid:68dd279d-8b68-40f9-9211-8afc95835166] spec:map[enable:true workloadSelector:map[fromService:true]] status:map[]]}

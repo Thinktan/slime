@@ -72,7 +72,7 @@ func (s *AccessLogSource) Start() error {
 	s.Do(func() {
 		log := log.WithField("reporter", "AccessLogSource").WithField("function", "Start")
 		var lis net.Listener
-		lis, err = net.Listen("tcp", s.servePort)
+		lis, err = net.Listen("tcp", s.servePort) // 8082
 		if err != nil {
 			return
 		}
@@ -95,6 +95,10 @@ func (s *AccessLogSource) QueryMetric(queryMap QueryMap) (Metric, error) {
 
 	metric := make(map[string][]Result)
 
+	log.Debugf("queryMap: %+v", queryMap)
+	// meta: istio-system/istio-egressgateway:
+	// handlers: [ {lazyload-accesslog-convertor } ]
+
 	for meta, handlers := range queryMap {
 		if len(handlers) == 0 {
 			continue
@@ -115,7 +119,8 @@ func (s *AccessLogSource) QueryMetric(queryMap QueryMap) (Metric, error) {
 		}
 	}
 
-	log.Infof("successfully get metric from accesslog")
+	log.Debugf("successfully get metric from accesslog, metric: [%+v]", metric)
+
 	return metric, nil
 }
 

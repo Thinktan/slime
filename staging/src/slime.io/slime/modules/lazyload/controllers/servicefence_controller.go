@@ -253,13 +253,23 @@ func ReconcilerWithEnv(env bootstrap.Environment) ReconcilerOpts {
 		log.Infof("tklog in ReconcilerWithEnv env: %+v, defaultAddNamespaces: %+v", env, sr.defaultAddNamespaces)
 		// -- env: {
 		//	Config:global:{service:"app" istioNamespace:"istio-system" slimeNamespace:"mesh-operator"
-		//	log:{logLevel:"info" klogLevel:5} misc:{key:"aux-addr" value:":8081"}
-		//	misc:{key:"enableLeaderElection" value:"off"} misc:{key:"logSourcePort" value:":8082"}
-		//	misc:{key:"metrics-addr" value:":8080"} misc:{key:"pathRedirect" value:""}
-		//	misc:{key:"seLabelSelectorKeys" value:"app"} misc:{key:"xdsSourceEnableIncPush" value:"true"}}
-		//	name:"lazyload" enable:true general:{} kind:"lazyload" K8SClient:0xc0002ff040
-		//	DynamicClient:0xc00093abd0 HttpPathHandler:{Prefix:lazyload PathHandler:0xc000939a40}
-		//	ReadyManager:0x2224c20 Stop:0xc0005b6930 ConfigController:<nil> IstioConfigController:<nil>},
+		//	log:{logLevel:"info" klogLevel:5}
+		//	misc:{key:"aux-addr" value:":8081"}
+		//	misc:{key:"enableLeaderElection" value:"off"}
+		//	misc:{key:"logSourcePort" value:":8082"}
+		//	misc:{key:"metrics-addr" value:":8080"}
+		//	misc:{key:"pathRedirect" value:""}
+		//	misc:{key:"seLabelSelectorKeys" value:"app"}
+		//	misc:{key:"xdsSourceEnableIncPush" value:"true"}}
+		//	name:"lazyload" enable:true general:{}
+		//	kind:"lazyload" K8SClient:0xc0002ff040
+		//	DynamicClient:0xc00093abd0
+		//	HttpPathHandler:{Prefix:lazyload PathHandler:0xc000939a40}
+		//	ReadyManager:0x2224c20
+		//	Stop:0xc0005b6930
+		//	ConfigController:<nil>
+		//	IstioConfigController:<nil>
+		// },
 		// -- defaultAddNamespaces: [istio-system mesh-operator] module=lazyload pkg=controllers
 	}
 }
@@ -332,7 +342,7 @@ func (r *ServicefenceReconciler) Clear() {
 
 func (r *ServicefenceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := modmodel.ModuleLog.WithField(model.LogFieldKeyResource, req.NamespacedName)
-	log = log.WithField("reporter", "tklog").WithField("func", "Reconcile")
+	log = log.WithField("function", "Reconcile")
 
 	log.Infof("reconcile svf %s", req)
 
@@ -424,6 +434,8 @@ func (r *ServicefenceReconciler) refreshSidecar(instance *lazyloadv1alpha1.Servi
 		log.Errorf("servicefence generate sidecar failed, %+v", err)
 		return err
 	}
+	log.Debugf("instance: %+v", instance)
+	log.Debugf("sidecar: %+v", sidecar)
 	if sidecar == nil {
 		return nil
 	}
@@ -434,6 +446,8 @@ func (r *ServicefenceReconciler) refreshSidecar(instance *lazyloadv1alpha1.Servi
 	}
 	sfRev := model.IstioRevFromLabel(instance.Labels)
 	model.PatchIstioRevLabel(&sidecar.Labels, sfRev)
+
+	log.Debugf("after 1 sidecar: %+v", sidecar)
 
 	// Check if this Pod already exists
 	found := &networkingv1alpha3.Sidecar{}
@@ -460,6 +474,7 @@ func (r *ServicefenceReconciler) refreshSidecar(instance *lazyloadv1alpha1.Servi
 			nsName, foundRev, r.env.IstioRev())
 	} else if !proto.Equal(&found.Spec, &sidecar.Spec) || !reflect.DeepEqual(found.Labels, sidecar.Labels) {
 		log.Infof("Update a Sidecar in %s:%s", sidecar.Namespace, sidecar.Name)
+		log.Debugf("update sidecar %+v", sidecar)
 		sidecar.ResourceVersion = found.ResourceVersion
 		err = r.Client.Update(context.TODO(), sidecar)
 		if err != nil {
@@ -471,7 +486,12 @@ func (r *ServicefenceReconciler) refreshSidecar(instance *lazyloadv1alpha1.Servi
 }
 
 func (r *ServicefenceReconciler) updateServicefenceDomain(sf *lazyloadv1alpha1.ServiceFence) {
+	log := log.WithField("function", "updateServicefenceDomain")
+
+	log.Debugf("sf: %+v, doAliasrules: %+v", sf, r.doAliasRules)
+
 	domains := r.genDomains(sf, r.doAliasRules)
+	log.Debugf("domains: %+v", domains)
 
 	for k, dest := range sf.Status.Domains {
 		if _, ok := domains[k]; !ok {
@@ -486,6 +506,8 @@ func (r *ServicefenceReconciler) updateServicefenceDomain(sf *lazyloadv1alpha1.S
 	}
 	sf.Status.Domains = domains
 
+	log.Debugf("new sf: %+v", sf)
+
 	_ = r.Client.Status().Update(context.TODO(), sf)
 	ServiceFenceRefresh.Increment()
 }
@@ -495,6 +517,9 @@ func (r *ServicefenceReconciler) genDomains(
 	rules []*domainAliasRule,
 ) map[string]*lazyloadv1alpha1.Destinations {
 	domains := make(map[string]*lazyloadv1alpha1.Destinations)
+	log := log.WithField("function", "genDomains")
+	log.Debugf("sf: %+v", sf)
+	log.Debugf("rules: %+v", rules)
 
 	addDomainsWithHost(domains, sf, r.nsSvcCache, rules)
 	addDomainsWithLabelSelector(domains, sf, r.labelSvcCache, rules)

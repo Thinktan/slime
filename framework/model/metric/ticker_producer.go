@@ -47,6 +47,7 @@ func (p *TickerProducer) HandleTickerEvent() {
 			if queryMap == nil {
 				continue
 			}
+			l.Debugf("queryMap: %+v", queryMap)
 
 			// get metric
 			metric, err := p.source.QueryMetric(queryMap)

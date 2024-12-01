@@ -37,9 +37,9 @@ type WatcherTriggerConfig struct {
 
 func NewWatcherTrigger(config WatcherTriggerConfig) *WatcherTrigger {
 	return &WatcherTrigger{
-		kinds:         config.Kinds,
+		kinds:         config.Kinds, // Kinds:[networking.istio.io/v1alpha3, Kind=Sidecar]
 		dynamicClient: config.DynamicClient,
-		eventChan:     config.EventChan,
+		eventChan:     config.EventChan, // MetricChan
 	}
 }
 
@@ -91,6 +91,7 @@ func (t *WatcherTrigger) Start() {
 							Namespace: object.GetNamespace(),
 						},
 					}
+					l.Debugf("put event[%+v] to eventChan", event)
 					t.eventChan <- event
 				}
 			}

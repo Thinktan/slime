@@ -48,12 +48,12 @@ func (t *TickerTrigger) Start() {
 						return
 					}
 				case <-ticker.C:
-					l.Debugf("got timer event: duration %v", du)
 					event := TickerEvent{
 						Duration: du,
 					}
+					l.Debugf("got timer event: duration %v", du)
 					t.eventChan <- event
-					// log.Debugf("sent timer event to controller: duration %s", timer.String())
+					log.Debugf("sent timer event to controller: duration %s", du)
 				}
 			}
 		}(duration, channel)

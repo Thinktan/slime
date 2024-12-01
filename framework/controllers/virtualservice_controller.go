@@ -43,7 +43,8 @@ type VirtualServiceReconciler struct {
 // +kubebuilder:rbac:groups=networking.istio.io,resources=virtualservices/status,verbs=get;update;patch
 
 func (r *VirtualServiceReconciler) Reconcile(_ context.Context, req ctrl.Request) (ctrl.Result, error) {
-	log := log.WithField("virtualService", req.NamespacedName)
+	log := log.WithField("virtualService", req.NamespacedName).WithField("function", "Reconcile").WithField("reporter", "VirtualSerivceReconciler")
+
 	// Fetch the VirtualService instance
 	instance := &networkingv1alpha3.VirtualService{}
 	err := r.Client.Get(context.TODO(), req.NamespacedName, instance)
@@ -56,6 +57,7 @@ func (r *VirtualServiceReconciler) Reconcile(_ context.Context, req ctrl.Request
 		log.Errorf("get virtualService error, %+v", err)
 		return reconcile.Result{}, err
 	}
+	log.Debugf("get virtualService %+v", instance)
 
 	istioRev := model.IstioRevFromLabel(instance.Labels)
 	if !r.Env.RevInScope(istioRev) {
@@ -66,10 +68,11 @@ func (r *VirtualServiceReconciler) Reconcile(_ context.Context, req ctrl.Request
 
 	// update resource
 	m := parseDestination(instance)
-	log.Debugf("get destination after parse, %+v", m)
+	log.Debugf("get destination: %+v", m)
 	for k, v := range m {
 		HostDestinationMapping.Set(k, v)
 	}
+	log.Debugf("HostDestinationMapping: %+v", HostDestinationMapping)
 
 	return ctrl.Result{}, nil
 }

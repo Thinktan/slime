@@ -111,7 +111,14 @@ func updateResources(wormholePort []string, env *bootstrap.Environment) bool {
 		log.Errorf("can't load global sidecar chart")
 		return false
 	}
-
+	//  {
+	// 		Raw:[0xc000614660 0xc000615230 0xc000615260 0xc000615290]
+	//		Metadata:0xc000478fc0 Lock:<nil>
+	//		Templates: [0xc0006152c0 0xc0006152f0]
+	//		Values:map[istioNamespace:istio-system namespace:mesh-operator service:map[logSourcePort:8082]]
+	//		Schema:[] Files:[] parent:<nil>
+	//		dependencies:[]
+	//	}
 	log.Debugf("chrt: %+v", chrt)
 
 	// values
@@ -201,6 +208,65 @@ func updateResources(wormholePort []string, env *bootstrap.Environment) bool {
 				}
 
 				log.Debugf("create res: %+v", res)
+				// Service资源示例
+				// {
+				//	Object:
+				//		map[
+				//			apiVersion:v1 kind:Service
+				//			metadata:
+				//				map[
+				//					labels:
+				//						map[app:global-sidecar service:globalsidecar slime.io/serviceFenced:false]
+				//					name:global-sidecar namespace:mesh-operator
+				//					ownerReferences:[
+				//						map[
+				//							apiVersion:config.netease.com/v1alpha1
+				//							blockOwnerDeletion:true kind:SlimeBoot
+				//							name:lazyload uid:ef427fe1-6be5-48ce-b5c3-4daea3bcb9b8
+				//						]
+				//					]
+				//				]
+				//			spec:
+				//				map[
+				//					ports:[
+				//						map[name:http-15014 port:15014 protocol:TCP targetPort:15014]
+				//						map[name:http-80 port:80 protocol:TCP targetPort:80]
+				//						map[name:http-9080 port:9080 protocol:TCP targetPort:9080]
+				//					]
+				//					selector:map[app:global-sidecar] sessionAffinity:None type:ClusterIP
+				//				]
+				//		]
+				//	}
+
+				// ConfigMap资源
+				// {
+				//	Object:
+				//		map[apiVersion:v1
+				//			data:
+				//				map[cfg:wormholePorts:
+				//   				- 15014
+				//   				- 80
+				//   				 - 9080
+				//  			 ]
+				// 		 kind:ConfigMap
+				//		 metadata:
+				//			 map[
+				//				 labels:map[lazyload.slime.io/config:global-sidecar]
+				//				 name:global-sidecar
+				//				 namespace:mesh-operator
+				//				 ownerReferences:
+				//					 [
+				//						 map[
+				//							 apiVersion:config.netease.com/v1alpha1
+				//							 blockOwnerDeletion:true
+				//							 kind:SlimeBoot name:lazyload uid:ef427fe1-6be5-48ce-b5c3-4daea3bcb9b8
+				//						 ]
+				//					 ]
+				//				 ]
+				//			 ]
+				//		 }
+
+				//
 
 				_, err = dynCli.Resource(gvr).Namespace(ns).Create(ctx, res, metav1.CreateOptions{})
 				if err != nil {

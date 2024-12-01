@@ -18,7 +18,7 @@ import (
 )
 
 func (r *ServicefenceReconciler) StartCache(ctx context.Context) {
-	log := log.WithField("func", "StartCache").WithField("addby", "tklog")
+	log := log.WithField("function", "StartCache").WithField("reporter", "ServicefenceReconciler")
 	factory := informers.NewSharedInformerFactory(r.env.K8SClient, 0)
 	r.factory = factory
 
@@ -59,7 +59,7 @@ func (r *ServicefenceReconciler) handleSvcAdd(_ context.Context, obj interface{}
 	if !ok {
 		return
 	}
-	log := log.WithField("func", "handleSvcAdd").WithField("addby", "tklog")
+	log := log.WithField("function", "handleSvcAdd").WithField("addby", "tklog")
 	log.Infof("svc: %+v", svc)
 
 	r.addLabelSvcCache(svc)
@@ -243,7 +243,7 @@ func (r *ServicefenceReconciler) deletePortProtocolCache(svc *corev1.Service) {
 
 func (r *ServicefenceReconciler) StartAutoPort(ctx context.Context) {
 	log := log.WithField("function", "StartAutoPort")
-	log = log.WithField("addby", "tklog")
+
 	initPort := r.cfg.WormholePort
 	needUpdate, successUpdate := false, true
 
@@ -292,6 +292,7 @@ func (r *ServicefenceReconciler) StartAutoPort(ctx context.Context) {
 
 		for {
 			// update wormholePort at first time or needUpdate or update failed
+			// 不断从portProtocolCache拿出最新的端口过来
 			wormholePort, needUpdate = reloadWormholePort(wormholePort, r.portProtocolCache, r.cfg.GetCleanupWormholePort())
 			// hits firstUpdate at first time
 			if firstUpdate || needUpdate || !successUpdate {
@@ -352,7 +353,6 @@ func reloadWormholePort(
 	portProtocolCache *PortProtocolCache,
 	cleaupWormholePort bool,
 ) ([]string, bool) {
-	log = log.WithField("addby", "tklog").WithField("func", "reloadWormholePort")
 	log.Debugf("req param - wormholePort: %+v, portProtocolCache: %+v, cleaupWormholePort: %+v", wormholePort, portProtocolCache, cleaupWormholePort)
 	// -- [15014 80 9080] cleanupWormholePort: false
 
